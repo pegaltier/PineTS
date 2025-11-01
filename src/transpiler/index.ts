@@ -1482,10 +1482,11 @@ function transformCallExpression(node: any, scopeManager: ScopeManager, namespac
             return transformFunctionArgument(arg, namespace, scopeManager);
         });
 
-        // //TODO : support cache
-        // if (namespace === 'ta') {
-        //     node.arguments.push(scopeManager.nextCacheIdArg);
-        // }
+        // Inject unique call ID for TA functions to enable proper state management
+        if (namespace === 'ta') {
+            node.arguments.push(scopeManager.getNextTACallId());
+        }
+        
         node._transformed = true;
     }
     // Check if this is a regular function call (not a namespace method)
