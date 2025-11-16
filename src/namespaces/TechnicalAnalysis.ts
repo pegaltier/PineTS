@@ -946,53 +946,6 @@ function rma(source: number[], period: number): number[] {
     return result;
 }
 
-function sma_cache(
-    source: number[],
-    period: number,
-    cacheObj: {
-        previousSum?: number;
-        lastProcessedIndex?: number;
-        previousResult?: number[];
-    }
-) {
-    const result = cacheObj.previousResult || new Array(source.length).fill(NaN);
-    const lastProcessedIndex = cacheObj.lastProcessedIndex || -1;
-    let previousSum = cacheObj.previousSum || 0;
-
-    if (lastProcessedIndex === -1 || source.length !== lastProcessedIndex + 1) {
-        // Initialize cache or handle reset/different length source
-        previousSum = 0;
-        for (let i = 0; i < period; i++) {
-            previousSum += source[i] || 0;
-        }
-        result[period - 1] = previousSum / period;
-
-        // Fill initial values with NaN for cache initialization as well
-        for (let i = 0; i < period - 1; i++) {
-            result[i] = NaN;
-        }
-
-        for (let i = period; i < source.length; i++) {
-            previousSum = previousSum - (source[i - period] || 0) + (source[i] || 0);
-            result[i] = previousSum / period;
-        }
-    } else if (source.length === lastProcessedIndex + 2) {
-        // Optimized calculation for new element
-        const newIndex = source.length - 1;
-        previousSum = previousSum - (source[newIndex - period] || 0) + (source[newIndex] || 0);
-        result[newIndex] = previousSum / period;
-    } else {
-        // Fallback to full calculation if cache is inconsistent or source length changed unexpectedly
-        return sma(source, period);
-    }
-
-    cacheObj.previousSum = previousSum;
-    cacheObj.lastProcessedIndex = source.length - 1;
-    cacheObj.previousResult = result;
-
-    return result;
-}
-
 function sma(source: number[], period: number): number[] {
     const result = new Array(source.length).fill(NaN);
 

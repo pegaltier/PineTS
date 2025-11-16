@@ -48,7 +48,7 @@ export class PineTS {
     ) {
         this._readyPromise = new Promise((resolve) => {
             this.loadMarketData(source, tickerId, timeframe, limit, sDate, eDate).then((data) => {
-                const marketData = data.reverse().slice(0, MAX_PERIODS);
+                const marketData = data.slice(0, MAX_PERIODS);
 
                 this._periods = marketData.length;
                 this.data = marketData;
@@ -115,21 +115,29 @@ export class PineTS {
         let transpiledFn = transformer(pineTSCode);
 
         //console.log('>>> transformedFn: ', transformedFn.toString());
-
+        context.data.close = [];
+        context.data.open = [];
+        context.data.high = [];
+        context.data.low = [];
+        context.data.volume = [];
+        context.data.hl2 = [];
+        context.data.hlc3 = [];
+        context.data.ohlc4 = [];
+        context.data.openTime = [];
+        context.data.closeTime = [];
         const contextVarNames = ['const', 'var', 'let', 'params'];
-        for (let i = this._periods - n, idx = n - 1; i < this._periods; i++, idx--) {
+        for (let i = this._periods - n; i < this._periods; i++) {
             context.idx = i;
 
-            context.data.close = this.close.slice(idx);
-            context.data.open = this.open.slice(idx);
-            context.data.high = this.high.slice(idx);
-            context.data.low = this.low.slice(idx);
-            context.data.volume = this.volume.slice(idx);
-            context.data.hl2 = this.hl2.slice(idx);
-            context.data.hlc3 = this.hlc3.slice(idx);
-            context.data.ohlc4 = this.ohlc4.slice(idx);
-            context.data.openTime = this.openTime.slice(idx);
-            context.data.closeTime = this.closeTime.slice(idx);
+            context.data.close.unshift(this.close[i]);
+            context.data.open.unshift(this.open[i]);
+            context.data.high.unshift(this.high[i]);
+            context.data.low.unshift(this.low[i]);
+            context.data.volume.unshift(this.volume[i]);
+            context.data.hl2.unshift(this.hl2[i]);
+            context.data.hlc3.unshift(this.hlc3[i]);
+            context.data.ohlc4.unshift(this.ohlc4[i]);
+            context.data.openTime.unshift(this.openTime[i]);
 
             const result = await transpiledFn(context);
 

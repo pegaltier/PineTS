@@ -1998,7 +1998,7 @@ function transformEqualityChecks(ast: any): void {
                         type: 'MemberExpression',
                         object: {
                             type: 'Identifier',
-                            name: 'math',
+                            name: '$.math',
                         },
                         property: {
                             type: 'Identifier',

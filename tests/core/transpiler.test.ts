@@ -612,7 +612,7 @@ describe('Transpiler', () => {
     for (let i = 1; i <= avg_len[0]; i++) {
       $.let.fn2_ret_val[0] += avg_src[i];
     }
-    if (math.__eq(avg_len[0], 0)) {
+    if ($.math.__eq(avg_len[0], 0)) {
       $.let.fn2_ret_val[0] = $.let.fn2_cc[1];
     }
     return $.precision($.let.fn2_ret_val[0] / avg_len[0]);
@@ -701,7 +701,7 @@ describe('Transpiler', () => {
     for (let i = 1; i <= avg_len[0]; i++) {
       $.let.fn1_ret_val[0] += avg_src[i];
     }
-    if (math.__eq(avg_len[0], 0)) {
+    if ($.math.__eq(avg_len[0], 0)) {
       $.let.fn1_ret_val[0] = $.let.fn1_cc[1];
     }
     return $.precision($.let.fn1_ret_val[0] / avg_len[0]);
