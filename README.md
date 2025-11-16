@@ -68,9 +68,10 @@ Original Pine Script:
 <table>
 <tr>
 <td>
-Original Pine Script
 
 ```javascript
+/*==[ Original Pine Script ]==*/
+
 //@version=5
 indicator('My EMA Cross Strategy');
 
@@ -89,9 +90,10 @@ _oo = math.abs(open[1] - close[2]);
 
 </td>
 <td>
-Equivalent PineTS
 
 ```javascript
+/*==[ Equivalent PineTS ]==*/
+
 //
 //'My EMA Cross Strategy';
 
