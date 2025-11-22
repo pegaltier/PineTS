@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { arrayPrecision, getKlines, runNSFunctionWithArgs } from '../utils';
-import { PineTS } from '../../src/PineTS.class';
+
+import { Context, PineTS, Provider } from 'index';
 
 async function runTAFunctionWithArgs(taFunction: string, ...args) {
     // Use the same dataset as the original tests for consistency
@@ -259,25 +260,64 @@ describe('Technical Analysis Functions - Unit Tests', () => {
 
     it('CROSSOVER - Crossover Detection', async () => {
         // Crossover returns a boolean per bar, need to collect it over time
-        const klines = await getKlines('BTCUSDT', '1h', 50, 0, 1736071200000 - 1);
-        const pineTS = new PineTS(klines);
+        //const klines = await getKlines('BTCUSDT', '1d', 50, 0, 1761350400000 - 1);
+        //const pineTS = new PineTS(klines);
+        const pineTS = new PineTS(Provider.Binance, 'BTCUSDT', 'D', null, new Date('2025-10-29').getTime(), 1763596800000);
 
-        const sourceCode = `(context) => {
+        const sourceCode = (context: Context) => {
             const { close } = context.data;
             const ta = context.ta;
+            const { plot, plotchar } = context.core;
             const ema9 = ta.ema(close, 9);
             const ema18 = ta.ema(close, 18);
-            const crossover = ta.crossover(ema9, ema18);
+            const crossover = ta.crossover(close, open);
+            plotchar(crossover, 'crossover');
             return { crossover };
-        }`;
+        };
 
-        const { result } = await pineTS.run(sourceCode);
-        const part = result.crossover ? result.crossover.reverse().slice(0, 10) : [];
+        const { result, plots } = await pineTS.run(sourceCode);
 
-        console.log(' CROSSOVER ', part);
-        expect(part).toBeDefined();
-        expect(part.length).toBe(10);
-        expect(part.every((v) => typeof v === 'boolean')).toBe(true);
+        const plotdata = plots['crossover'].data.reverse();
+        plotdata.forEach((e) => {
+            e.time = new Date(e.time).toISOString().slice(0, -1) + '-00:00';
+
+            delete e.options;
+        });
+        const plotdata_str = plotdata.map((e) => `[${e.time}]: ${e.value}`).join('\n');
+
+        const expected_plot = `[2025-10-29T00:00:00.000-00:00]: false
+[2025-10-30T00:00:00.000-00:00]: false
+[2025-10-31T00:00:00.000-00:00]: true
+[2025-11-01T00:00:00.000-00:00]: false
+[2025-11-02T00:00:00.000-00:00]: false
+[2025-11-03T00:00:00.000-00:00]: false
+[2025-11-04T00:00:00.000-00:00]: false
+[2025-11-05T00:00:00.000-00:00]: true
+[2025-11-06T00:00:00.000-00:00]: false
+[2025-11-07T00:00:00.000-00:00]: true
+[2025-11-08T00:00:00.000-00:00]: false
+[2025-11-09T00:00:00.000-00:00]: true
+[2025-11-10T00:00:00.000-00:00]: false
+[2025-11-11T00:00:00.000-00:00]: false
+[2025-11-12T00:00:00.000-00:00]: false
+[2025-11-13T00:00:00.000-00:00]: false
+[2025-11-14T00:00:00.000-00:00]: false
+[2025-11-15T00:00:00.000-00:00]: true
+[2025-11-16T00:00:00.000-00:00]: false
+[2025-11-17T00:00:00.000-00:00]: false
+[2025-11-18T00:00:00.000-00:00]: true
+[2025-11-19T00:00:00.000-00:00]: false
+[2025-11-20T00:00:00.000-00:00]: false`;
+
+        console.log('>>> plotdata_str: \n', plotdata_str);
+        console.log('>>> expected_plot: \n', expected_plot);
+        expect(plotdata_str).toEqual(expected_plot);
+        const part = result.crossover ? result.crossover.reverse() : [];
+
+        //console.log(' CROSSOVER ', part);
+        //expect(part).toBeDefined();
+        //expect(part.length).toBe(50);
+        //expect(part.every((v) => typeof v === 'boolean')).toBe(true);
     });
 
     it('CROSSUNDER - Crossunder Detection', async () => {
