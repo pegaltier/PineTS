@@ -97,8 +97,29 @@ export function transformAssignmentExpression(node: any, scopeManager: ScopeMana
     );
 
     if (targetVarRef) {
-        // Replace the whole assignment expression with $.set(targetVarRef, node.right)
-        const setCall = ASTFactory.createSetCall(targetVarRef, node.right);
+        let rightSide = node.right;
+
+        // Handle compound assignment operators (+=, -=, *=, etc.)
+        if (node.operator !== '=') {
+            const operator = node.operator.replace('=', '');
+
+            // Create a read access for the target variable: $.get(targetVarRef, 0)
+            const readAccess = ASTFactory.createGetCall(targetVarRef, 0);
+
+            // Create a binary expression: readAccess [op] node.right
+            // Example: a += 10  ->  $.set(a, $.get(a, 0) + 10)
+            rightSide = {
+                type: 'BinaryExpression',
+                operator: operator,
+                left: readAccess,
+                right: node.right,
+                start: node.start,
+                end: node.end,
+            };
+        }
+
+        // Replace the whole assignment expression with $.set(targetVarRef, rightSide)
+        const setCall = ASTFactory.createSetCall(targetVarRef, rightSide);
 
         // Preserve location
         if (node.start) setCall.start = node.start;
