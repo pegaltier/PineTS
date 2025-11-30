@@ -633,7 +633,7 @@ if (na(n_a)) {
     $.set($.let.glb1_aa, i);
   }
   for (let i = 0; i < $.get($.let.glb1_aa, 0); i++) {
-    $.set($.let.glb1__cc, $.let.glb1__cc[i]);
+    $.set($.let.glb1__cc, $.get($.let.glb1__cc, i));
   }
   for (let i = 0; i < $.get($.let.glb1__cc, 0); i++) {
     $.set($.let.glb1_aa, i);

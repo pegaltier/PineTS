@@ -46,8 +46,16 @@ export function security(context: any) {
         if (context.cache[_expression_name]) {
             const secContext = context.cache[_expression_name];
             const secContextIdx = isLTF
-                ? findLTFContextIdx(myOpenTime, myCloseTime, secContext.data.openTime, secContext.data.closeTime, _lookahead, context.eDate, _gaps)
-                : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime, secContext.data.closeTime, _lookahead);
+                ? findLTFContextIdx(
+                      myOpenTime,
+                      myCloseTime,
+                      secContext.data.openTime.data,
+                      secContext.data.closeTime.data,
+                      _lookahead,
+                      context.eDate,
+                      _gaps
+                  )
+                : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead);
 
             if (secContextIdx == -1) {
                 return NaN;
@@ -71,10 +79,12 @@ export function security(context: any) {
 
                 // Index changed (or first call) - update and return value
                 context.cache[gapCacheKey] = secContextIdx;
-                return value;
+                // Wrap tuples in 2D array to match $.precision() convention
+                return Array.isArray(value) ? [value] : value;
             }
 
-            return value;
+            // Wrap tuples in 2D array to match $.precision() convention
+            return Array.isArray(value) ? [value] : value;
         }
 
         // Add buffer to sDate to ensure bar start is covered
@@ -92,8 +102,16 @@ export function security(context: any) {
         context.cache[_expression_name] = secContext;
 
         const secContextIdx = isLTF
-            ? findLTFContextIdx(myOpenTime, myCloseTime, secContext.data.openTime, secContext.data.closeTime, _lookahead, context.eDate, _gaps)
-            : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime, secContext.data.closeTime, _lookahead);
+            ? findLTFContextIdx(
+                  myOpenTime,
+                  myCloseTime,
+                  secContext.data.openTime.data,
+                  secContext.data.closeTime.data,
+                  _lookahead,
+                  context.eDate,
+                  _gaps
+              )
+            : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead);
 
         if (secContextIdx == -1) {
             return NaN;
@@ -108,6 +126,7 @@ export function security(context: any) {
             return NaN;
         }
 
-        return value;
+        // Wrap tuples in 2D array to match $.precision() convention
+        return Array.isArray(value) ? [value] : value;
     };
 }

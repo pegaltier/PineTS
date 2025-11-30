@@ -271,30 +271,44 @@ $.init(target, source, (index = 0));
 **Implementation Logic:**
 
 ```typescript
-init(trg, src: any, idx: number = 0) {
-    // Handle Series objects
+init(trg, src: any, idx: number = 0): Series {
+    // Extract value from source
+    let value;
     if (src instanceof Series) {
-        src = src.get(0);
-    }
-
-    if (!trg) {
-        // Initialize new array
-        if (Array.isArray(src)) {
-            trg = [this.precision(src[src.length - 1 + idx])];
+        value = src.get(0);
+    } else if (Array.isArray(src)) {
+        // Handle 2D arrays (tuples wrapped by $.precision() or from request.security)
+        // e.g., [[a, b]] from return $.precision([[a, b]]) or request.security tuple
+        if (Array.isArray(src[0])) {
+            value = src[0];
         } else {
-            trg = [this.precision(src)];
+            // Flat 1D array = time-series data (forward-ordered)
+            // Extract the element at the right position
+            value = this.precision(src[src.length - 1 + idx]);
         }
     } else {
-        // Update existing array (at last index = current value)
-        if (!Array.isArray(src) || Array.isArray(src[0])) {
-            // Handle 2D arrays (tuples) or scalar values
-            trg[trg.length - 1] = Array.isArray(src?.[0]) ? src[0] : this.precision(src);
-        } else {
-            trg[trg.length - 1] = this.precision(src[src.length - 1 + idx]);
-        }
+        value = this.precision(src);
     }
 
-    return trg;
+    // If target doesn't exist, create new Series
+    if (!trg) {
+        return new Series([value]);
+    }
+
+    // If target is already a Series, update it
+    if (trg instanceof Series) {
+        trg.data[trg.data.length - 1] = value;
+        return trg;
+    }
+
+    // Legacy: if trg is an array, convert to Series
+    if (Array.isArray(trg)) {
+        trg[trg.length - 1] = value;
+        return new Series(trg);
+    }
+
+    // Default: create new Series
+    return new Series([value]);
 }
 ```
 
@@ -1018,11 +1032,98 @@ const p1 = ta.param(10, undefined, 'p1');
 const p2 = ta.param(3, undefined, 'p2');
 const temp_1 = ta.supertrend(p0, p1, p2, '_ta0');
 
-let a = $.init($.let.glb1_a, temp_1?.[0][0]);
-let b = $.init($.let.glb1_b, temp_1?.[0][1]);
+let a = $.init($.let.glb1_a, $.get($.const.glb1_temp_1, 0)[0]);
+let b = $.init($.let.glb1_b, $.get($.const.glb1_temp_1, 0)[1]);
 ```
 
-### 5. Native Symbol Normalization & na Handling
+### 5. Array Expression Transformation
+
+The transpiler transforms identifiers within array expressions to ensure proper Series access.
+
+**Example:**
+
+```javascript
+// User writes (with user variables):
+const o = open;
+const c = close;
+const [res, data] = await request.security('BTCUSDC', '240', [o, c], false, false);
+
+// Transpiler converts to:
+$.const.glb1_o = $.init($.const.glb1_o, open);
+$.const.glb1_c = $.init($.const.glb1_c, close);
+const p2 = request.param([$.get($.const.glb1_o, 0), $.get($.const.glb1_c, 0)], undefined, 'p2');
+// ... rest of request.security call
+```
+
+**Direct Series Example:**
+
+```javascript
+// User writes (with direct Series):
+const [res, data] = await request.security('BTCUSDC', '240', [open, close], false, false);
+
+// Transpiler keeps Series as-is:
+const p2 = request.param([open, close], undefined, 'p2');
+// request.param() will extract values from Series internally
+```
+
+This transformation ensures that:
+
+-   User variables in arrays are accessed with `$.get(variable, 0)`
+-   Direct Series references (like `open`, `close`) are passed through
+-   Both scalar tuples and Series tuples are handled correctly
+
+### 6. Tuple Handling in request.security
+
+The `request.security` function has special handling for tuple expressions to distinguish between tuples and time-series arrays.
+
+**request.param() Tuple Detection:**
+
+```typescript
+export function param(context: any) {
+    return (source: any, index: any, name?: string) => {
+        if (source instanceof Series) {
+            val = source.get(index || 0);
+        } else if (Array.isArray(source)) {
+            // Detect tuple vs time-series array
+            const hasOnlySeries = source.every((elem) => elem instanceof Series);
+            const hasOnlyScalars = source.every((elem) => !(elem instanceof Series) && !Array.isArray(elem));
+            const isTuple = (hasOnlySeries || hasOnlyScalars) && source.length >= 1;
+
+            if (isTuple) {
+                if (hasOnlySeries) {
+                    // Tuple of Series: extract values from each
+                    val = source.map((s: Series) => s.get(0));
+                } else {
+                    // Tuple of scalars: preserve as-is
+                    val = source;
+                }
+            } else {
+                // Time-series array
+                val = Series.from(source).get(index || 0);
+            }
+        }
+        // ... store and return
+    };
+}
+```
+
+**2D Array Convention:**
+
+`request.security` wraps tuple return values in 2D arrays to match the `$.precision()` convention:
+
+```javascript
+// In security.ts
+const value = secContext.params[_expression_name][secContextIdx];
+return Array.isArray(value) ? [value] : value; // Wrap tuple as [[a, b]]
+```
+
+This structural distinction allows `Context.init()` to recognize tuples:
+
+-   **2D array** `[[a, b]]` → tuple (extract `[a, b]`)
+-   **1D array** `[1, 2, 3]` → time-series (extract last element)
+-   **Scalar** `42` → single value
+
+### 7. Native Symbol Normalization & na Handling
 
 **Normalization:**
 The transpiler ensures that standard Pine Script symbols (like `close`, `open`, `ta`, `math`) cannot be renamed by the user via aliasing in imports.
@@ -1034,7 +1135,7 @@ The symbol `na` is treated specially:
 -   When used as a value: Replaced with `NaN` (e.g., `x = na` -> `x = NaN`).
 -   When used as a function: Remains as a function call (e.g., `na(x)`).
 
-### 6. Nested Function Parameters
+### 8. Nested Function Parameters
 
 Function parameters are marked as "context-bound" to prevent transformation:
 
@@ -1046,7 +1147,7 @@ const myFunc = (value) => value * 2;
 // It remains as 'value' for proper function behavior
 ```
 
-### 7. Loop Variable Handling
+### 9. Loop Variable Handling
 
 Loop variables receive special treatment:
 
@@ -1060,7 +1161,7 @@ for (let i = 0; i < 10; i++) {
 // But 'sum' and 'values' ARE transformed
 ```
 
-### 8. Precision Management
+### 10. Precision Management
 
 All numeric values are rounded to 10 decimal places (Pine Script standard):
 
@@ -1552,6 +1653,208 @@ To migrate from old syntax to new syntax:
 2. **Clarity**: Clear distinction between market data (`context.data`) and Pine Script functions (`context.pine`).
 3. **Maintainability**: Easier to document and understand for new users.
 4. **Future-proofing**: Provides a cleaner foundation for future API enhancements.
+
+---
+
+## Complete Tuple Handling Architecture
+
+This section documents the end-to-end solution for handling tuples in PineTS, which was a critical architectural improvement.
+
+### The Problem
+
+Pine Script functions can return multiple values (tuples), which need to be properly handled throughout the system:
+
+```javascript
+// Function returning tuple
+function compute() {
+    return [value1, value2];
+}
+
+// Tuple destructuring
+const [a, b] = compute();
+
+// Tuple as expression in request.security
+const [res, data] = await request.security('BTCUSDC', '240', [open, close], false, false);
+```
+
+The challenge was distinguishing between:
+
+1. **Tuples** (multiple return values): `[a, b]`
+2. **Time-series arrays** (chronological data): `[val0, val1, ..., valN]`
+
+### The Solution: Multi-Layer Approach
+
+#### Layer 1: Transpiler Array Expression Handling
+
+The transpiler transforms array expressions containing user variables:
+
+```javascript
+// User code:
+const o = open;
+const c = close;
+const [res, data] = await request.security('BTCUSDC', '240', [o, c], false, false);
+
+// Transpiled:
+const p2 = request.param([$.get($.const.glb1_o, 0), $.get($.const.glb1_c, 0)], undefined, 'p2');
+```
+
+**Implementation** (`src/transpiler/transformers/ExpressionTransformer.ts`):
+
+```typescript
+case 'ArrayExpression':
+    // Transform each element in the array
+    arg.elements = arg.elements.map((element: any) => {
+        if (element.type === 'Identifier') {
+            if (scopeManager.isContextBound(element.name) && !scopeManager.isRootParam(element.name)) {
+                // Data variable (open, close) - use directly
+                return element;
+            }
+            // User variable - transform to $.get(variable, 0)
+            const [scopedName, kind] = scopeManager.getVariable(element.name);
+            return ASTFactory.createContextVariableAccess0(kind, scopedName);
+        }
+        return element;
+    });
+    break;
+```
+
+#### Layer 2: request.param() Tuple Detection
+
+The `request.param()` function distinguishes tuples from time-series arrays:
+
+**Heuristics**:
+
+-   **Tuple of Series**: All elements are Series objects → Extract values with `.map(s => s.get(0))`
+-   **Tuple of scalars**: All elements are non-Series, non-Array → Preserve as-is
+-   **Time-series**: Neither of above → Extract with `Series.from(source).get(0)`
+
+**Implementation** (`src/namespaces/request/methods/param.ts`):
+
+```typescript
+const hasOnlySeries = source.every((elem) => elem instanceof Series);
+const hasOnlyScalars = source.every((elem) => !(elem instanceof Series) && !Array.isArray(elem));
+const isTuple = (hasOnlySeries || hasOnlyScalars) && source.length >= 1;
+
+if (isTuple) {
+    if (hasOnlySeries) {
+        // [open, close] → [openVal, closeVal]
+        val = source.map((s: Series) => s.get(0));
+    } else {
+        // [$.get(o, 0), $.get(c, 0)] → preserve
+        val = source;
+    }
+}
+```
+
+#### Layer 3: 2D Array Convention
+
+`request.security` wraps tuples in 2D arrays to provide structural distinction:
+
+**Implementation** (`src/namespaces/request/methods/security.ts`):
+
+```typescript
+const value = secContext.params[_expression_name][secContextIdx];
+// Wrap tuples in 2D array: [a, b] → [[a, b]]
+return Array.isArray(value) ? [value] : value;
+```
+
+This matches the convention used by `$.precision()` for function returns:
+
+```javascript
+function foo() {
+    return $.precision([[a, b]]); // 2D array wrapping
+}
+```
+
+#### Layer 4: Context.init() Recognition
+
+`Context.init()` uses structural detection to recognize tuples:
+
+**Implementation** (`src/Context.class.ts`):
+
+```typescript
+if (Array.isArray(src)) {
+    if (Array.isArray(src[0])) {
+        // 2D array [[a, b]] → tuple
+        value = src[0]; // Extract [a, b]
+    } else {
+        // 1D array [1, 2, 3] → time-series
+        value = this.precision(src[src.length - 1 + idx]); // Extract last element
+    }
+}
+```
+
+### Complete Data Flow Example
+
+**Case 1: Tuple of User Variables**
+
+```javascript
+// User code:
+const o = open;
+const c = close;
+const [res, data] = await request.security('BTCUSDC', '240', [o, c], false, false);
+```
+
+Flow:
+
+1. Transpiler: `[o, c]` → `[$.get($.const.glb1_o, 0), $.get($.const.glb1_c, 0)]`
+2. request.param(): Detects scalar tuple → preserves `[val1, val2]`
+3. Secondary context: Stores tuple in `secContext.params`
+4. request.security(): Returns `[[val1, val2]]` (2D wrap)
+5. Context.init(): Detects 2D array → extracts `[val1, val2]`
+6. Destructuring: `$.get(temp, 0)[0]` and `$.get(temp, 0)[1]` ✅
+
+**Case 2: Tuple of Series**
+
+```javascript
+// User code:
+const [res, data] = await request.security('BTCUSDC', '240', [open, close], false, false);
+```
+
+Flow:
+
+1. Transpiler: `[open, close]` → no transformation (native symbols)
+2. request.param(): Detects Series tuple → extracts `[open.get(0), close.get(0)]`
+3. Secondary context: Stores tuple in `secContext.params`
+4. request.security(): Returns `[[val1, val2]]` (2D wrap)
+5. Context.init(): Detects 2D array → extracts `[val1, val2]`
+6. Destructuring: `$.get(temp, 0)[0]` and `$.get(temp, 0)[1]` ✅
+
+**Case 3: Function Returning Tuple**
+
+```javascript
+// User code:
+function compute() {
+    return [open - close, close - open];
+}
+const [res, data] = await request.security('BTCUSDC', '240', compute(), false, false);
+```
+
+Flow:
+
+1. Function returns: `$.precision([[a, b]])` (2D array from transpiler)
+2. request.param(): Detects 2D array → extracts `[a, b]`
+3. Secondary context: Stores tuple in `secContext.params`
+4. request.security(): Returns `[[val1, val2]]` (2D wrap)
+5. Context.init(): Detects 2D array → extracts `[val1, val2]`
+6. Destructuring: `$.get(temp, 0)[0]` and `$.get(temp, 0)[1]` ✅
+
+### Key Design Decisions
+
+1. **Structural Typing Over Heuristics**: Use 2D arrays `[[a, b]]` as a clear marker for tuples
+2. **Consistent Convention**: Both `$.precision()` and `request.security` use 2D wrapping
+3. **Series-Aware Detection**: Handle both scalar and Series tuples correctly
+4. **Minimal Changes**: Solution focused on param() and init() without changing transpiler extensively
+
+### Testing Coverage
+
+All tuple scenarios are covered by tests:
+
+-   ✅ Function returning tuple
+-   ✅ Tuple expression with user variables `[o, c]`
+-   ✅ Tuple expression with Series `[open, close]`
+-   ✅ Tuple in request.security (HTF and LTF)
+-   ✅ Tuple destructuring with array patterns
 
 ---
 

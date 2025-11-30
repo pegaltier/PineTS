@@ -12,8 +12,19 @@ const UNDEFINED_ARG = {
 
 export function transformArrayIndex(node: any, scopeManager: ScopeManager): void {
     if (node.computed && node.property.type === 'Identifier') {
-        // Skip transformation if it's a loop variable
+        // If index is a loop variable, we still need to transform the object to use $.get()
         if (scopeManager.isLoopVariable(node.property.name)) {
+            // Transform the object if it's a context-bound variable
+            if (node.object.type === 'Identifier' && !scopeManager.isLoopVariable(node.object.name)) {
+                if (!scopeManager.isContextBound(node.object.name)) {
+                    const [scopedName, kind] = scopeManager.getVariable(node.object.name);
+                    // Transform to $.get($.kind.scopedName, loopVar)
+                    const contextVarRef = ASTFactory.createContextVariableReference(kind, scopedName);
+                    const getCall = ASTFactory.createGetCall(contextVarRef, node.property);
+                    Object.assign(node, getCall);
+                    node._indexTransformed = true;
+                }
+            }
             return;
         }
 
@@ -510,6 +521,22 @@ export function transformFunctionArgument(arg: any, namespace: string, scopeMana
         case 'UnaryExpression':
             arg = getParamFromUnaryExpression(arg, scopeManager, namespace);
             break;
+        case 'ArrayExpression':
+            // Transform each element in the array
+            arg.elements = arg.elements.map((element: any) => {
+                if (element.type === 'Identifier') {
+                    // Transform identifiers to use $.get(variable, 0)
+                    if (scopeManager.isContextBound(element.name) && !scopeManager.isRootParam(element.name)) {
+                        // It's a data variable like 'close', 'open' - use directly
+                        return element;
+                    }
+                    // It's a user variable - transform to context reference
+                    const [scopedName, kind] = scopeManager.getVariable(element.name);
+                    return ASTFactory.createContextVariableAccess0(kind, scopedName);
+                }
+                return element;
+            });
+            break;
     }
 
     // Check if the argument is an array access
@@ -704,44 +731,44 @@ export function transformCallExpression(node: any, scopeManager: ScopeManager, n
             arg,
             { parent: node },
             {
-            Identifier(node: any, state: any, c: any) {
-                node.parent = state.parent;
-                transformIdentifier(node, scopeManager);
-                const isBinaryOperation = node.parent && node.parent.type === 'BinaryExpression';
-                const isConditional = node.parent && node.parent.type === 'ConditionalExpression';
+                Identifier(node: any, state: any, c: any) {
+                    node.parent = state.parent;
+                    transformIdentifier(node, scopeManager);
+                    const isBinaryOperation = node.parent && node.parent.type === 'BinaryExpression';
+                    const isConditional = node.parent && node.parent.type === 'ConditionalExpression';
 
-                if (isConditional || isBinaryOperation) {
-                    if (node.type === 'MemberExpression') {
-                        transformArrayIndex(node, scopeManager);
-                    } else if (node.type === 'Identifier') {
-                        // Skip addArrayAccess if the identifier is already inside a $.get call
-                        const isGetCall =
-                            node.parent &&
-                            node.parent.type === 'CallExpression' &&
-                            node.parent.callee &&
-                            node.parent.callee.object &&
-                            node.parent.callee.object.name === CONTEXT_NAME &&
-                            node.parent.callee.property.name === 'get';
+                    if (isConditional || isBinaryOperation) {
+                        if (node.type === 'MemberExpression') {
+                            transformArrayIndex(node, scopeManager);
+                        } else if (node.type === 'Identifier') {
+                            // Skip addArrayAccess if the identifier is already inside a $.get call
+                            const isGetCall =
+                                node.parent &&
+                                node.parent.type === 'CallExpression' &&
+                                node.parent.callee &&
+                                node.parent.callee.object &&
+                                node.parent.callee.object.name === CONTEXT_NAME &&
+                                node.parent.callee.property.name === 'get';
 
-                        if (!isGetCall) {
-                            addArrayAccess(node, scopeManager);
+                            if (!isGetCall) {
+                                addArrayAccess(node, scopeManager);
+                            }
                         }
                     }
-                }
-            },
-            CallExpression(node: any, state: any, c: any) {
-                if (!node._transformed) {
-                    // First transform the call expression itself
+                },
+                CallExpression(node: any, state: any, c: any) {
+                    if (!node._transformed) {
+                        // First transform the call expression itself
                         transformCallExpression(node, scopeManager);
-                }
-            },
-            MemberExpression(node: any, state: any, c: any) {
-                transformMemberExpression(node, '', scopeManager);
-                // Then continue with object transformation
-                if (node.object) {
+                    }
+                },
+                MemberExpression(node: any, state: any, c: any) {
+                    transformMemberExpression(node, '', scopeManager);
+                    // Then continue with object transformation
+                    if (node.object) {
                         c(node.object, { parent: node });
-                }
-            },
+                    }
+                },
             }
         );
     });

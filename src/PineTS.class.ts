@@ -3,6 +3,7 @@
 import { transpile } from '@pinets/transpiler/index';
 import { IProvider } from './marketData/IProvider';
 import { Context } from './Context.class';
+import { Series } from './Series';
 
 /**
  * This class is a wrapper for the Pine Script language, it allows to run Pine Script code in a JavaScript environment
@@ -387,17 +388,17 @@ export class PineTS {
         }
 
         // Also remove from context.data arrays (last element = most recent in forward array)
-        context.data.close.pop();
-        context.data.open.pop();
-        context.data.high.pop();
-        context.data.low.pop();
-        context.data.volume.pop();
-        context.data.hl2.pop();
-        context.data.hlc3.pop();
-        context.data.ohlc4.pop();
-        context.data.openTime.pop();
+        context.data.close.data.pop();
+        context.data.open.data.pop();
+        context.data.high.data.pop();
+        context.data.low.data.pop();
+        context.data.volume.data.pop();
+        context.data.hl2.data.pop();
+        context.data.hlc3.data.pop();
+        context.data.ohlc4.data.pop();
+        context.data.openTime.data.pop();
         if (context.data.closeTime) {
-            context.data.closeTime.pop();
+            context.data.closeTime.data.pop();
         }
     }
 
@@ -417,16 +418,16 @@ export class PineTS {
         });
 
         context.pineTSCode = pineTSCode;
-        context.data.close = [];
-        context.data.open = [];
-        context.data.high = [];
-        context.data.low = [];
-        context.data.volume = [];
-        context.data.hl2 = [];
-        context.data.hlc3 = [];
-        context.data.ohlc4 = [];
-        context.data.openTime = [];
-        context.data.closeTime = [];
+        context.data.close = new Series([]);
+        context.data.open = new Series([]);
+        context.data.high = new Series([]);
+        context.data.low = new Series([]);
+        context.data.volume = new Series([]);
+        context.data.hl2 = new Series([]);
+        context.data.hlc3 = new Series([]);
+        context.data.ohlc4 = new Series([]);
+        context.data.openTime = new Series([]);
+        context.data.closeTime = new Series([]);
 
         return context;
     }
@@ -450,16 +451,16 @@ export class PineTS {
         for (let i = startIdx; i < endIdx; i++) {
             context.idx = i;
 
-            context.data.close.push(this.close[i]);
-            context.data.open.push(this.open[i]);
-            context.data.high.push(this.high[i]);
-            context.data.low.push(this.low[i]);
-            context.data.volume.push(this.volume[i]);
-            context.data.hl2.push(this.hl2[i]);
-            context.data.hlc3.push(this.hlc3[i]);
-            context.data.ohlc4.push(this.ohlc4[i]);
-            context.data.openTime.push(this.openTime[i]);
-            context.data.closeTime.push(this.closeTime[i]);
+            context.data.close.data.push(this.close[i]);
+            context.data.open.data.push(this.open[i]);
+            context.data.high.data.push(this.high[i]);
+            context.data.low.data.push(this.low[i]);
+            context.data.volume.data.push(this.volume[i]);
+            context.data.hl2.data.push(this.hl2[i]);
+            context.data.hlc3.data.push(this.hlc3[i]);
+            context.data.ohlc4.data.push(this.ohlc4[i]);
+            context.data.openTime.data.push(this.openTime[i]);
+            context.data.closeTime.data.push(this.closeTime[i]);
 
             const result = await transpiledFn(context);
 
@@ -473,7 +474,15 @@ export class PineTS {
                         context.result[key] = [];
                     }
 
-                    const val = Array.isArray(result[key]) ? result[key][result[key].length - 1] : result[key];
+                    let val;
+                    if (result[key] instanceof Series) {
+                        val = result[key].get(0);
+                    } else if (Array.isArray(result[key])) {
+                        val = result[key][result[key].length - 1];
+                    } else {
+                        val = result[key];
+                    }
+
                     context.result[key].push(val);
                 }
             } else {
@@ -487,12 +496,15 @@ export class PineTS {
             //shift context
             for (let ctxVarName of contextVarNames) {
                 for (let key in context[ctxVarName]) {
-                    if (Array.isArray(context[ctxVarName][key])) {
-                        const arr = context[ctxVarName][key];
-                        const val = arr[arr.length - 1];
-                        arr.push(val);
-                    } else {
-                        //console.error('>>> invalid entry format, should be an array: ', ctxVarName, key);
+                    const item = context[ctxVarName][key];
+
+                    if (item instanceof Series) {
+                        const val = item.get(0);
+                        item.data.push(val);
+                    } else if (Array.isArray(item)) {
+                        // Legacy array support during transition
+                        const val = item[item.length - 1];
+                        item.push(val);
                     }
                 }
             }

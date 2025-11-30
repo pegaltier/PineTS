@@ -12,14 +12,14 @@ import { Series } from './Series';
 
 export class Context {
     public data: any = {
-        open: [],
-        high: [],
-        low: [],
-        close: [],
-        volume: [],
-        hl2: [],
-        hlc3: [],
-        ohlc4: [],
+        open: new Series([]),
+        high: new Series([]),
+        low: new Series([]),
+        close: new Series([]),
+        volume: new Series([]),
+        hl2: new Series([]),
+        hlc3: new Series([]),
+        ohlc4: new Series([]),
     };
     public cache: any = {};
     public taState: any = {}; // State for incremental TA calculations
@@ -121,32 +121,48 @@ export class Context {
      * this function is used to initialize the target variable with the source array
      * this array will represent a time series and its values will be shifted at runtime in order to mimic Pine script behavior
      * @param trg - the target variable name : used internally to maintain the series in the execution context
-     * @param src - the source data, can be an array or a single value
+     * @param src - the source data, can be Series, array, or a single value
      * @param idx - the index of the source array, used to get a sub-series of the source data
-     * @returns the target array
+     * @returns Series object
      */
-    init(trg, src: any, idx: number = 0) {
+    init(trg, src: any, idx: number = 0): Series {
+        // Extract value from source
+        let value;
         if (src instanceof Series) {
-            src = src.get(0);
-        }
-
-        if (!trg) {
-            if (Array.isArray(src)) {
-                trg = [this.precision(src[src.length - 1 + idx])];
+            value = src.get(0);
+        } else if (Array.isArray(src)) {
+            // Handle 2D arrays (tuples wrapped by $.precision() or from request.security)
+            // e.g., [[a, b]] from return $.precision([[a, b]]) or request.security tuple
+            if (Array.isArray(src[0])) {
+                value = src[0];
             } else {
-                trg = [this.precision(src)];
+                // Flat 1D array = time-series data (forward-ordered)
+                // Extract the element at the right position
+                value = this.precision(src[src.length - 1 + idx]);
             }
         } else {
-            if (!Array.isArray(src) || Array.isArray(src[0])) {
-                //here we check that this is not a 2D array, in which case we consider it an array of values
-                //this is important for handling TA functions that return tupples or series of tuples
-                trg[trg.length - 1] = Array.isArray(src?.[0]) ? src[0] : this.precision(src);
-            } else {
-                trg[trg.length - 1] = this.precision(src[src.length - 1 + idx]);
-            }
+            value = this.precision(src);
         }
 
-        return trg;
+        // If target doesn't exist, create new Series
+        if (!trg) {
+            return new Series([value]);
+        }
+
+        // If target is already a Series, update it
+        if (trg instanceof Series) {
+            trg.data[trg.data.length - 1] = value;
+            return trg;
+        }
+
+        // Legacy: if trg is an array, convert to Series
+        if (Array.isArray(trg)) {
+            trg[trg.length - 1] = value;
+            return new Series(trg);
+        }
+
+        // Default: create new Series
+        return new Series([value]);
     }
 
     /**

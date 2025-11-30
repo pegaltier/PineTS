@@ -229,6 +229,7 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
                             transformIdentifier(node, scopeManager);
 
                             const isBinaryOperation = node.parent && node.parent.type === 'BinaryExpression';
+                            const isUnaryOperation = node.parent && node.parent.type === 'UnaryExpression';
                             const isConditional = node.parent && node.parent.type === 'ConditionalExpression';
                             const isGetCall =
                                 node.parent &&
@@ -238,7 +239,7 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
                                 node.parent.callee.object.name === CONTEXT_NAME &&
                                 node.parent.callee.property.name === 'get';
 
-                            if (node.type === 'Identifier' && (isBinaryOperation || isConditional) && !isGetCall) {
+                            if (node.type === 'Identifier' && (isBinaryOperation || isUnaryOperation || isConditional) && !isGetCall) {
                                 addArrayAccess(node, scopeManager);
                             }
                         },
@@ -334,14 +335,28 @@ export function transformVariableDeclaration(varNode: any, scopeManager: ScopeMa
         const assignmentExpr = ASTFactory.createExpressionStatement(ASTFactory.createAssignmentExpression(targetVarRef, rightSide));
 
         if (isArrayPatternVar) {
-            // Complex logic for array pattern, keeping as is but using ASTFactory where obvious
-            assignmentExpr.expression.right.object.property.name += `?.[0][${decl.init.property.value}]`;
-            const obj = assignmentExpr.expression.right.object;
+            // For array pattern destructuring, we need to:
+            // 1. Use $.get(tempVar, 0) to get the current value from the Series
+            // 2. Then access the array element [index]
+            const tempVarRef = assignmentExpr.expression.right.object;
+            const arrayIndex = decl.init.property.value;
 
-            // Reconstruct the init call
+            // Create $.get(tempVar, 0)[index]
+            const getCall = ASTFactory.createGetCall(tempVarRef, 0);
+            const arrayAccess = {
+                type: 'MemberExpression',
+                object: getCall,
+                property: {
+                    type: 'Literal',
+                    value: arrayIndex,
+                },
+                computed: true,
+            };
+
+            // Wrap in $.init(targetVar, $.get(tempVar, 0)[index])
             assignmentExpr.expression.right = ASTFactory.createCallExpression(
                 ASTFactory.createMemberExpression(ASTFactory.createContextIdentifier(), ASTFactory.createIdentifier('init')),
-                [targetVarRef, obj]
+                [targetVarRef, arrayAccess]
             );
         }
 

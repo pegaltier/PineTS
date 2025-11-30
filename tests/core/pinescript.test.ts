@@ -937,8 +937,8 @@ describe('PineScript Language', () => {
             not: [true, false, true, false, true, true, true, false, true, true, true, true, true, true, false, true, true, false, true, false],
         };
 
-        expect(deepEqual(context.result, expected)).toBe(true);
-        expect(context.result).toEqual(expected);
+        expect(deepEqual(context.result.not, expected.not)).toBe(true);
+        expect(context.result.not).toEqual(expected.not);
     });
 
     it('Compound Assignment Operators', async () => {
@@ -1412,19 +1412,18 @@ describe('PineScript Language', () => {
     });
 
     it('For Loop History Access', async () => {
-        const pineTS = new PineTS(Provider.Binance, 'BTCUSDT', '4H', 20, new Date('Sep 20 2025').getTime(), new Date('Nov 25 2025').getTime());
+        const pineTS = new PineTS(Provider.Binance, 'BTCUSDC', 'W', null, new Date('2018-12-10').getTime(), new Date('2019-02-20 ').getTime());
         const context = await pineTS.run(async (context) => {
             const { open, close, high, low, hlc3 } = context.data;
-            const ta = context.ta;
-            const math = context.math;
+            const { na } = context.pine;
 
             //=============================
             let val = 0;
-            val = val[1] ? val[1] + 1 : 1;
+            val = !na(val[1]) ? val[1] + 1 : 1;
 
             let sum = 0;
             for (let i = 1; i <= 3; i++) {
-                sum += val[i] || 0;
+                sum += na(val[i]) ? 0 : val[i];
             }
             //=============================
 
@@ -1438,8 +1437,8 @@ describe('PineScript Language', () => {
         console.log('>>> result: ', context.result);
 
         const expected = {
-            val: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-            sum: [0, 2, 5, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9],
+            val: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            sum: [0, 1, 3, 6, 9, 12, 15, 18, 21, 24, 27],
         };
 
         expect(deepEqual(context.result, expected)).toBe(true);

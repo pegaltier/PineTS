@@ -7870,10 +7870,10 @@
       const nameId = this.createIdentifier(name);
       return this.createMemberExpression(this.createMemberExpression(context, kindId, false), nameId, false);
     },
-    // Create $.kind.name[0]
+    // Create $.get($.kind.name, 0)
     createContextVariableAccess0(kind, name) {
       const varRef = this.createContextVariableReference(kind, name);
-      return this.createArrayAccess(varRef, 0);
+      return this.createGetCall(varRef, 0);
     },
     createArrayAccess(object, index) {
       const indexNode = typeof index === "number" ? this.createLiteral(index) : index;
@@ -7985,31 +7985,35 @@
         });
       }
     };
-    recursive(ast, {}, {
-      VariableDeclarator(node, state, c) {
-        addDeclared(node.id);
-        if (node.init) c(node.init, state);
-      },
-      FunctionDeclaration(node, state, c) {
-        addDeclared(node.id);
-        c(node.body, state);
-      },
-      Identifier(node, state, c) {
-        usedIdentifiers.add(node.name);
-      },
-      MemberExpression(node, state, c) {
-        c(node.object, state);
-        if (node.computed) {
-          c(node.property, state);
+    recursive(
+      ast,
+      {},
+      {
+        VariableDeclarator(node, state, c) {
+          addDeclared(node.id);
+          if (node.init) c(node.init, state);
+        },
+        FunctionDeclaration(node, state, c) {
+          addDeclared(node.id);
+          c(node.body, state);
+        },
+        Identifier(node, state, c) {
+          usedIdentifiers.add(node.name);
+        },
+        MemberExpression(node, state, c) {
+          c(node.object, state);
+          if (node.computed) {
+            c(node.property, state);
+          }
+        },
+        Property(node, state, c) {
+          if (node.computed) {
+            c(node.key, state);
+          }
+          c(node.value, state);
         }
-      },
-      Property(node, state, c) {
-        if (node.computed) {
-          c(node.key, state);
-        }
-        c(node.value, state);
       }
-    });
+    );
     mainBody.forEach((stmt) => {
       if (stmt.type === "VariableDeclaration") {
         stmt.declarations.forEach((d) => addDeclared(d.id));
@@ -8017,18 +8021,7 @@
         addDeclared(stmt.id);
       }
     });
-    const contextDataVars = [
-      "open",
-      "high",
-      "low",
-      "close",
-      "volume",
-      "hl2",
-      "hlc3",
-      "ohlc4",
-      "openTime",
-      "closeTime"
-    ];
+    const contextDataVars = ["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "openTime", "closeTime"];
     const contextPineVars = [
       "input",
       "ta",
@@ -8059,50 +8052,54 @@
       injections.push({
         type: "VariableDeclaration",
         kind: "const",
-        declarations: [{
-          type: "VariableDeclarator",
-          id: {
-            type: "ObjectPattern",
-            properties: neededDataVars.map((name) => ({
-              type: "Property",
-              key: { type: "Identifier", name },
-              value: { type: "Identifier", name },
-              kind: "init",
-              shorthand: true
-            }))
-          },
-          init: {
-            type: "MemberExpression",
-            object: { type: "Identifier", name: contextParamName },
-            property: { type: "Identifier", name: "data" },
-            computed: false
+        declarations: [
+          {
+            type: "VariableDeclarator",
+            id: {
+              type: "ObjectPattern",
+              properties: neededDataVars.map((name) => ({
+                type: "Property",
+                key: { type: "Identifier", name },
+                value: { type: "Identifier", name },
+                kind: "init",
+                shorthand: true
+              }))
+            },
+            init: {
+              type: "MemberExpression",
+              object: { type: "Identifier", name: contextParamName },
+              property: { type: "Identifier", name: "data" },
+              computed: false
+            }
           }
-        }]
+        ]
       });
     }
     if (neededPineVars.length > 0) {
       injections.push({
         type: "VariableDeclaration",
         kind: "const",
-        declarations: [{
-          type: "VariableDeclarator",
-          id: {
-            type: "ObjectPattern",
-            properties: neededPineVars.map((name) => ({
-              type: "Property",
-              key: { type: "Identifier", name },
-              value: { type: "Identifier", name },
-              kind: "init",
-              shorthand: true
-            }))
-          },
-          init: {
-            type: "MemberExpression",
-            object: { type: "Identifier", name: contextParamName },
-            property: { type: "Identifier", name: "pine" },
-            computed: false
+        declarations: [
+          {
+            type: "VariableDeclarator",
+            id: {
+              type: "ObjectPattern",
+              properties: neededPineVars.map((name) => ({
+                type: "Property",
+                key: { type: "Identifier", name },
+                value: { type: "Identifier", name },
+                kind: "init",
+                shorthand: true
+              }))
+            },
+            init: {
+              type: "MemberExpression",
+              object: { type: "Identifier", name: contextParamName },
+              property: { type: "Identifier", name: "pine" },
+              computed: false
+            }
           }
-        }]
+        ]
       });
     }
     if (injections.length > 0) {
@@ -8216,6 +8213,39 @@
         }
       );
     }
+  }
+
+  function isWrappedInFunction(code) {
+    try {
+      const ast = parse(code, {
+        ecmaVersion: "latest",
+        sourceType: "module"
+      });
+      if (ast.type === "Program" && ast.body.length === 1) {
+        const firstStatement = ast.body[0];
+        if (firstStatement.type === "ExpressionStatement") {
+          const expr = firstStatement.expression;
+          if (expr.type === "ArrowFunctionExpression" || expr.type === "FunctionExpression") {
+            return true;
+          }
+        }
+        if (firstStatement.type === "FunctionDeclaration") {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+  function wrapInContextFunction(code) {
+    code = code.trim();
+    if (isWrappedInFunction(code)) {
+      return code;
+    }
+    return `(context) => {
+${code}
+}`;
   }
 
   function transformNestedArrowFunctions(ast) {
@@ -8370,6 +8400,15 @@
   function transformArrayIndex(node, scopeManager) {
     if (node.computed && node.property.type === "Identifier") {
       if (scopeManager.isLoopVariable(node.property.name)) {
+        if (node.object.type === "Identifier" && !scopeManager.isLoopVariable(node.object.name)) {
+          if (!scopeManager.isContextBound(node.object.name)) {
+            const [scopedName, kind] = scopeManager.getVariable(node.object.name);
+            const contextVarRef = ASTFactory.createContextVariableReference(kind, scopedName);
+            const getCall = ASTFactory.createGetCall(contextVarRef, node.property);
+            Object.assign(node, getCall);
+            node._indexTransformed = true;
+          }
+        }
         return;
       }
       if (!scopeManager.isContextBound(node.property.name)) {
@@ -8679,6 +8718,18 @@
       case "UnaryExpression":
         arg = getParamFromUnaryExpression(arg, scopeManager, namespace);
         break;
+      case "ArrayExpression":
+        arg.elements = arg.elements.map((element) => {
+          if (element.type === "Identifier") {
+            if (scopeManager.isContextBound(element.name) && !scopeManager.isRootParam(element.name)) {
+              return element;
+            }
+            const [scopedName, kind] = scopeManager.getVariable(element.name);
+            return ASTFactory.createContextVariableAccess0(kind, scopedName);
+          }
+          return element;
+        });
+        break;
     }
     const isArrayAccess = arg.type === "MemberExpression" && arg.computed && arg.property;
     if (isArrayAccess) {
@@ -8983,9 +9034,10 @@
                 node.parent = state.parent;
                 transformIdentifier(node, scopeManager);
                 const isBinaryOperation = node.parent && node.parent.type === "BinaryExpression";
+                const isUnaryOperation = node.parent && node.parent.type === "UnaryExpression";
                 const isConditional = node.parent && node.parent.type === "ConditionalExpression";
                 const isGetCall = node.parent && node.parent.type === "CallExpression" && node.parent.callee && node.parent.callee.object && node.parent.callee.object.name === CONTEXT_NAME && node.parent.callee.property.name === "get";
-                if (node.type === "Identifier" && (isBinaryOperation || isConditional) && !isGetCall) {
+                if (node.type === "Identifier" && (isBinaryOperation || isUnaryOperation || isConditional) && !isGetCall) {
                   addArrayAccess(node);
                 }
               },
@@ -9055,11 +9107,21 @@
       }
       const assignmentExpr = ASTFactory.createExpressionStatement(ASTFactory.createAssignmentExpression(targetVarRef, rightSide));
       if (isArrayPatternVar) {
-        assignmentExpr.expression.right.object.property.name += `?.[0][${decl.init.property.value}]`;
-        const obj = assignmentExpr.expression.right.object;
+        const tempVarRef = assignmentExpr.expression.right.object;
+        const arrayIndex = decl.init.property.value;
+        const getCall = ASTFactory.createGetCall(tempVarRef, 0);
+        const arrayAccess = {
+          type: "MemberExpression",
+          object: getCall,
+          property: {
+            type: "Literal",
+            value: arrayIndex
+          },
+          computed: true
+        };
         assignmentExpr.expression.right = ASTFactory.createCallExpression(
           ASTFactory.createMemberExpression(ASTFactory.createContextIdentifier(), ASTFactory.createIdentifier("init")),
-          [targetVarRef, obj]
+          [targetVarRef, arrayAccess]
         );
       }
       if (isArrowFunction) {
@@ -9206,11 +9268,15 @@
         node.argument.elements = node.argument.elements.map((element) => {
           if (element.type === "Identifier") {
             if (scopeManager.isContextBound(element.name) && !scopeManager.isRootParam(element.name)) {
-              return ASTFactory.createArrayAccess(element, 0);
+              return ASTFactory.createGetCall(element, 0);
             }
             const [scopedName, kind] = scopeManager.getVariable(element.name);
             return ASTFactory.createContextVariableAccess0(kind, scopedName);
           } else if (element.type === "MemberExpression") {
+            const isContextVarRef = element.object && element.object.type === "MemberExpression" && element.object.object && element.object.object.type === "Identifier" && element.object.object.name === "$" && element.object.property && ["const", "let", "var", "params"].includes(element.object.property.name);
+            if (isContextVarRef) {
+              return ASTFactory.createGetCall(element, 0);
+            }
             if (element.computed && element.object.type === "Identifier" && scopeManager.isContextBound(element.object.name) && !scopeManager.isRootParam(element.object.name)) {
               return element;
             }
@@ -9399,6 +9465,7 @@
     const { debug } = options;
     let code = typeof fn === "function" ? fn.toString() : fn;
     code = code.trim();
+    code = wrapInContextFunction(code);
     const sourceLines = debug ? code.split("\n") : [];
     const ast = parse(code, {
       ecmaVersion: "latest",
@@ -9426,6 +9493,174 @@
     const _wraperFunction = new Function("", `var _r = ${transformedCode}
 ; return _r;`);
     return _wraperFunction(this);
+  }
+
+  class PineArrayObject {
+    constructor(array) {
+      this.array = array;
+    }
+    toString() {
+      return "PineArrayObject:" + this.array.toString();
+    }
+  }
+
+  function abs$1(context) {
+    return (id) => {
+      return new PineArrayObject(id.array.map((val) => Math.abs(val)));
+    };
+  }
+
+  function avg$1(context) {
+    return (id) => {
+      return context.array.sum(id) / id.array.length;
+    };
+  }
+
+  function clear(context) {
+    return (id) => {
+      id.array.length = 0;
+    };
+  }
+
+  function concat(context) {
+    return (id, other) => {
+      id.array.push(...other.array);
+      return id;
+    };
+  }
+
+  function copy(context) {
+    return (id) => {
+      return new PineArrayObject([...id.array]);
+    };
+  }
+
+  function covariance(context) {
+    return (arr1, arr2, biased = true) => {
+      if (arr1.array.length !== arr2.array.length || arr1.array.length < 2) return NaN;
+      const divisor = biased ? arr1.array.length : arr1.array.length - 1;
+      const mean1 = context.array.avg(arr1);
+      const mean2 = context.array.avg(arr2);
+      let sum = 0;
+      for (let i = 0; i < arr1.array.length; i++) {
+        sum += (arr1.array[i] - mean1) * (arr2.array[i] - mean2);
+      }
+      return sum / divisor;
+    };
+  }
+
+  function every(context) {
+    return (id, callback) => {
+      return id.array.every(callback);
+    };
+  }
+
+  function fill(context) {
+    return (id, value, start = 0, end) => {
+      const length = id.array.length;
+      const adjustedEnd = end !== void 0 ? Math.min(end, length) : length;
+      for (let i = start; i < adjustedEnd; i++) {
+        id.array[i] = value;
+      }
+    };
+  }
+
+  function first(context) {
+    return (id) => {
+      return id.array.length > 0 ? id.array[0] : context.NA;
+    };
+  }
+
+  function from(context) {
+    return (source) => {
+      return new PineArrayObject([...source]);
+    };
+  }
+
+  function get(context) {
+    return (id, index) => {
+      return id.array[index];
+    };
+  }
+
+  function includes(context) {
+    return (id, value) => {
+      return id.array.includes(value);
+    };
+  }
+
+  function indexof(context) {
+    return (id, value) => {
+      return id.array.indexOf(value);
+    };
+  }
+
+  function insert(context) {
+    return (id, index, value) => {
+      id.array.splice(index, 0, value);
+    };
+  }
+
+  function join(context) {
+    return (id, separator = ",") => {
+      return id.array.join(separator);
+    };
+  }
+
+  function last(context) {
+    return (id) => {
+      return id.array.length > 0 ? id.array[id.array.length - 1] : context.NA;
+    };
+  }
+
+  function lastindexof(context) {
+    return (id, value) => {
+      return id.array.lastIndexOf(value);
+    };
+  }
+
+  function max$1(context) {
+    return (id, nth = 0) => {
+      const sorted = [...id.array].sort((a, b) => b - a);
+      return sorted[nth] ?? context.NA;
+    };
+  }
+
+  function min$1(context) {
+    return (id, nth = 0) => {
+      const sorted = [...id.array].sort((a, b) => a - b);
+      return sorted[nth] ?? context.NA;
+    };
+  }
+
+  function new_fn(context) {
+    return (size, initial_value) => {
+      return new PineArrayObject(Array(size).fill(initial_value));
+    };
+  }
+
+  function new_bool(context) {
+    return (size, initial_value = false) => {
+      return new PineArrayObject(Array(size).fill(initial_value));
+    };
+  }
+
+  function new_float(context) {
+    return (size, initial_value = NaN) => {
+      return new PineArrayObject(Array(size).fill(initial_value));
+    };
+  }
+
+  function new_int(context) {
+    return (size, initial_value = 0) => {
+      return new PineArrayObject(Array(size).fill(Math.round(initial_value)));
+    };
+  }
+
+  function new_string(context) {
+    return (size, initial_value = "") => {
+      return new PineArrayObject(Array(size).fill(initial_value));
+    };
   }
 
   class Series {
@@ -9459,13 +9694,241 @@
     }
   }
 
+  function param$4(context) {
+    return (source, index = 0) => {
+      return Series.from(source).get(index);
+    };
+  }
+
+  function pop(context) {
+    return (id) => {
+      return id.array.pop();
+    };
+  }
+
+  function push(context) {
+    return (id, value) => {
+      id.array.push(value);
+    };
+  }
+
+  function range(context) {
+    return (id) => {
+      return context.array.max(id) - context.array.min(id);
+    };
+  }
+
+  function remove(context) {
+    return (id, index) => {
+      if (index >= 0 && index < id.array.length) {
+        return id.array.splice(index, 1)[0];
+      }
+      return context.NA;
+    };
+  }
+
+  function reverse(context) {
+    return (id) => {
+      id.array.reverse();
+    };
+  }
+
+  function set(context) {
+    return (id, index, value) => {
+      id.array[index] = value;
+    };
+  }
+
+  function shift(context) {
+    return (id) => {
+      return id.array.shift();
+    };
+  }
+
+  function size(context) {
+    return (id) => {
+      return id.array.length;
+    };
+  }
+
+  function slice(context) {
+    return (id, start, end) => {
+      const adjustedEnd = end !== void 0 ? end + 1 : void 0;
+      return new PineArrayObject(id.array.slice(start, adjustedEnd));
+    };
+  }
+
+  function some(context) {
+    return (id, callback) => {
+      return id.array.some(callback);
+    };
+  }
+
+  function sort(context) {
+    return (id, order = "asc") => {
+      id.array.sort((a, b) => order === "asc" ? a - b : b - a);
+    };
+  }
+
+  function sort_indices(context) {
+    return (id, comparator) => {
+      const indices = id.array.map((_, index) => index);
+      indices.sort((a, b) => {
+        const valA = id.array[a];
+        const valB = id.array[b];
+        return comparator ? comparator(valA, valB) : valA - valB;
+      });
+      return new PineArrayObject(indices);
+    };
+  }
+
+  function standardize(context) {
+    return (id) => {
+      const mean = context.array.avg(id);
+      const stdev = context.array.stdev(id);
+      if (stdev === 0) {
+        return new PineArrayObject(id.array.map(() => 0));
+      }
+      return new PineArrayObject(id.array.map((x) => (x - mean) / stdev));
+    };
+  }
+
+  function stdev$1(context) {
+    return (id, biased = true) => {
+      const mean = context.array.avg(id);
+      const deviations = id.array.map((x) => Math.pow(x - mean, 2));
+      const divisor = biased ? id.array.length : id.array.length - 1;
+      return Math.sqrt(context.array.sum(new PineArrayObject(deviations)) / divisor);
+    };
+  }
+
+  function sum$1(context) {
+    return (id) => {
+      return id.array.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
+    };
+  }
+
+  function unshift(context) {
+    return (id, value) => {
+      id.array.unshift(value);
+    };
+  }
+
+  function variance$1(context) {
+    return (id, biased = true) => {
+      const mean = context.array.avg(id);
+      const deviations = id.array.map((x) => Math.pow(x - mean, 2));
+      const divisor = biased ? id.array.length : id.array.length - 1;
+      return context.array.sum(new PineArrayObject(deviations)) / divisor;
+    };
+  }
+
   var __defProp$8 = Object.defineProperty;
   var __defNormalProp$8 = (obj, key, value) => key in obj ? __defProp$8(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __publicField$8 = (obj, key, value) => __defNormalProp$8(obj, typeof key !== "symbol" ? key + "" : key, value);
+  const methods$4 = {
+    abs: abs$1,
+    avg: avg$1,
+    clear,
+    concat,
+    copy,
+    covariance,
+    every,
+    fill,
+    first,
+    from,
+    get,
+    includes,
+    indexof,
+    insert,
+    join,
+    last,
+    lastindexof,
+    max: max$1,
+    min: min$1,
+    new: new_fn,
+    new_bool,
+    new_float,
+    new_int,
+    new_string,
+    param: param$4,
+    pop,
+    push,
+    range,
+    remove,
+    reverse,
+    set,
+    shift,
+    size,
+    slice,
+    some,
+    sort,
+    sort_indices,
+    standardize,
+    stdev: stdev$1,
+    sum: sum$1,
+    unshift,
+    variance: variance$1
+  };
+  class PineArray {
+    constructor(context) {
+      this.context = context;
+      __publicField$8(this, "_cache", {});
+      __publicField$8(this, "abs");
+      __publicField$8(this, "avg");
+      __publicField$8(this, "clear");
+      __publicField$8(this, "concat");
+      __publicField$8(this, "copy");
+      __publicField$8(this, "covariance");
+      __publicField$8(this, "every");
+      __publicField$8(this, "fill");
+      __publicField$8(this, "first");
+      __publicField$8(this, "from");
+      __publicField$8(this, "get");
+      __publicField$8(this, "includes");
+      __publicField$8(this, "indexof");
+      __publicField$8(this, "insert");
+      __publicField$8(this, "join");
+      __publicField$8(this, "last");
+      __publicField$8(this, "lastindexof");
+      __publicField$8(this, "max");
+      __publicField$8(this, "min");
+      __publicField$8(this, "new");
+      __publicField$8(this, "new_bool");
+      __publicField$8(this, "new_float");
+      __publicField$8(this, "new_int");
+      __publicField$8(this, "new_string");
+      __publicField$8(this, "param");
+      __publicField$8(this, "pop");
+      __publicField$8(this, "push");
+      __publicField$8(this, "range");
+      __publicField$8(this, "remove");
+      __publicField$8(this, "reverse");
+      __publicField$8(this, "set");
+      __publicField$8(this, "shift");
+      __publicField$8(this, "size");
+      __publicField$8(this, "slice");
+      __publicField$8(this, "some");
+      __publicField$8(this, "sort");
+      __publicField$8(this, "sort_indices");
+      __publicField$8(this, "standardize");
+      __publicField$8(this, "stdev");
+      __publicField$8(this, "sum");
+      __publicField$8(this, "unshift");
+      __publicField$8(this, "variance");
+      Object.entries(methods$4).forEach(([name, factory]) => {
+        this[name] = factory(context);
+      });
+    }
+  }
+
+  var __defProp$7 = Object.defineProperty;
+  var __defNormalProp$7 = (obj, key, value) => key in obj ? __defProp$7(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField$7 = (obj, key, value) => __defNormalProp$7(obj, typeof key !== "symbol" ? key + "" : key, value);
   class Core {
     constructor(context) {
       this.context = context;
-      __publicField$8(this, "color", {
+      __publicField$7(this, "color", {
         param: (source, index = 0) => {
           return Series.from(source).get(index);
         },
@@ -9568,7 +10031,7 @@
     };
   }
 
-  function param$4(context) {
+  function param$3(context) {
     return (source, index = 0) => {
       const val = Series.from(source).get(index);
       return [val];
@@ -9623,17 +10086,17 @@
     };
   }
 
-  var __defProp$7 = Object.defineProperty;
-  var __defNormalProp$7 = (obj, key, value) => key in obj ? __defProp$7(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField$7 = (obj, key, value) => __defNormalProp$7(obj, typeof key !== "symbol" ? key + "" : key, value);
-  const methods$4 = {
+  var __defProp$6 = Object.defineProperty;
+  var __defNormalProp$6 = (obj, key, value) => key in obj ? __defProp$6(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField$6 = (obj, key, value) => __defNormalProp$6(obj, typeof key !== "symbol" ? key + "" : key, value);
+  const methods$3 = {
     any,
     bool,
     color,
     enum: enum_fn,
     float,
     int,
-    param: param$4,
+    param: param$3,
     price,
     session,
     source,
@@ -9646,28 +10109,28 @@
   class Input {
     constructor(context) {
       this.context = context;
-      __publicField$7(this, "any");
-      __publicField$7(this, "bool");
-      __publicField$7(this, "color");
-      __publicField$7(this, "enum");
-      __publicField$7(this, "float");
-      __publicField$7(this, "int");
-      __publicField$7(this, "param");
-      __publicField$7(this, "price");
-      __publicField$7(this, "session");
-      __publicField$7(this, "source");
-      __publicField$7(this, "string");
-      __publicField$7(this, "symbol");
-      __publicField$7(this, "text_area");
-      __publicField$7(this, "time");
-      __publicField$7(this, "timeframe");
-      Object.entries(methods$4).forEach(([name, factory]) => {
+      __publicField$6(this, "any");
+      __publicField$6(this, "bool");
+      __publicField$6(this, "color");
+      __publicField$6(this, "enum");
+      __publicField$6(this, "float");
+      __publicField$6(this, "int");
+      __publicField$6(this, "param");
+      __publicField$6(this, "price");
+      __publicField$6(this, "session");
+      __publicField$6(this, "source");
+      __publicField$6(this, "string");
+      __publicField$6(this, "symbol");
+      __publicField$6(this, "text_area");
+      __publicField$6(this, "time");
+      __publicField$6(this, "timeframe");
+      Object.entries(methods$3).forEach(([name, factory]) => {
         this[name] = factory(context);
       });
     }
   }
 
-  function abs$1(context) {
+  function abs(context) {
     return (source) => {
       return Math.abs(Series.from(source).get(0));
     };
@@ -9691,7 +10154,7 @@
     };
   }
 
-  function avg$1(context) {
+  function avg(context) {
     return (...sources) => {
       const values = sources.map((source) => {
         return Series.from(source).get(0);
@@ -9743,21 +10206,21 @@
     };
   }
 
-  function max$1(context) {
+  function max(context) {
     return (...source) => {
       const args = source.map((e) => Series.from(e).get(0));
       return Math.max(...args);
     };
   }
 
-  function min$1(context) {
+  function min(context) {
     return (...source) => {
       const args = source.map((e) => Series.from(e).get(0));
       return Math.min(...args);
     };
   }
 
-  function param$3(context) {
+  function param$2(context) {
     return (source, index, name) => {
       if (typeof source === "string") return source;
       if (source instanceof Series) {
@@ -9811,7 +10274,7 @@
     };
   }
 
-  function sum$1(context) {
+  function sum(context) {
     return (source, length) => {
       const len = Series.from(length).get(0);
       const series = Series.from(source);
@@ -9842,15 +10305,15 @@
     };
   }
 
-  var __defProp$6 = Object.defineProperty;
-  var __defNormalProp$6 = (obj, key, value) => key in obj ? __defProp$6(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField$6 = (obj, key, value) => __defNormalProp$6(obj, typeof key !== "symbol" ? key + "" : key, value);
-  const methods$3 = {
-    abs: abs$1,
+  var __defProp$5 = Object.defineProperty;
+  var __defNormalProp$5 = (obj, key, value) => key in obj ? __defProp$5(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField$5 = (obj, key, value) => __defNormalProp$5(obj, typeof key !== "symbol" ? key + "" : key, value);
+  const methods$2 = {
+    abs,
     acos,
     asin,
     atan,
-    avg: avg$1,
+    avg,
     ceil,
     cos,
     exp,
@@ -9858,65 +10321,79 @@
     ln,
     log,
     log10,
-    max: max$1,
-    min: min$1,
-    param: param$3,
+    max,
+    min,
+    param: param$2,
     pow,
     random,
     round,
     sin,
     sqrt,
-    sum: sum$1,
+    sum,
     tan,
     __eq
   };
   class PineMath {
     constructor(context) {
       this.context = context;
-      __publicField$6(this, "_cache", {});
-      __publicField$6(this, "abs");
-      __publicField$6(this, "acos");
-      __publicField$6(this, "asin");
-      __publicField$6(this, "atan");
-      __publicField$6(this, "avg");
-      __publicField$6(this, "ceil");
-      __publicField$6(this, "cos");
-      __publicField$6(this, "exp");
-      __publicField$6(this, "floor");
-      __publicField$6(this, "ln");
-      __publicField$6(this, "log");
-      __publicField$6(this, "log10");
-      __publicField$6(this, "max");
-      __publicField$6(this, "min");
-      __publicField$6(this, "param");
-      __publicField$6(this, "pow");
-      __publicField$6(this, "random");
-      __publicField$6(this, "round");
-      __publicField$6(this, "sin");
-      __publicField$6(this, "sqrt");
-      __publicField$6(this, "sum");
-      __publicField$6(this, "tan");
-      __publicField$6(this, "__eq");
-      Object.entries(methods$3).forEach(([name, factory]) => {
+      __publicField$5(this, "_cache", {});
+      __publicField$5(this, "abs");
+      __publicField$5(this, "acos");
+      __publicField$5(this, "asin");
+      __publicField$5(this, "atan");
+      __publicField$5(this, "avg");
+      __publicField$5(this, "ceil");
+      __publicField$5(this, "cos");
+      __publicField$5(this, "exp");
+      __publicField$5(this, "floor");
+      __publicField$5(this, "ln");
+      __publicField$5(this, "log");
+      __publicField$5(this, "log10");
+      __publicField$5(this, "max");
+      __publicField$5(this, "min");
+      __publicField$5(this, "param");
+      __publicField$5(this, "pow");
+      __publicField$5(this, "random");
+      __publicField$5(this, "round");
+      __publicField$5(this, "sin");
+      __publicField$5(this, "sqrt");
+      __publicField$5(this, "sum");
+      __publicField$5(this, "tan");
+      __publicField$5(this, "__eq");
+      Object.entries(methods$2).forEach(([name, factory]) => {
         this[name] = factory(context);
       });
     }
   }
 
-  function param$2(context) {
+  function param$1(context) {
     return (source, index, name) => {
       if (!context.params[name]) context.params[name] = [];
-      if (source instanceof Series || Array.isArray(source)) {
-        const val = Series.from(source).get(index || 0);
-        return [val, name];
-      } else {
-        if (context.params[name].length === 0) {
-          context.params[name].push(source);
+      let val;
+      if (source instanceof Series) {
+        val = source.get(index || 0);
+      } else if (Array.isArray(source)) {
+        const hasOnlySeries = source.every((elem) => elem instanceof Series);
+        const hasOnlyScalars = source.every((elem) => !(elem instanceof Series) && !Array.isArray(elem));
+        const isTuple = (hasOnlySeries || hasOnlyScalars) && source.length >= 1;
+        if (isTuple) {
+          if (hasOnlySeries) {
+            val = source.map((s) => s.get(0));
+          } else {
+            val = source;
+          }
         } else {
-          context.params[name][context.params[name].length - 1] = source;
+          val = Series.from(source).get(index || 0);
         }
-        return [source, name];
+      } else {
+        val = source;
       }
+      if (context.params[name].length === 0) {
+        context.params[name].push(val);
+      } else {
+        context.params[name][context.params[name].length - 1] = val;
+      }
+      return [val, name];
     };
   }
 
@@ -9925,7 +10402,43 @@
   function findSecContextIdx(myOpenTime, myCloseTime, openTime, closeTime, lookahead = false) {
     for (let i = 0; i < openTime.length; i++) {
       if (openTime[i] <= myOpenTime && myCloseTime <= closeTime[i]) {
-        return i + (lookahead ? 1 : 2);
+        if (lookahead) {
+          return i;
+        }
+        return myCloseTime >= closeTime[i] ? i : i - 1;
+      }
+    }
+    return -1;
+  }
+
+  function findLTFContextIdx(myOpenTime, myCloseTime, openTime, closeTime, lookahead = false, mainContextEDate, gaps = false) {
+    for (let i = openTime.length - 1; i >= 0; i--) {
+      if (closeTime[i] <= myCloseTime && openTime[i] >= myOpenTime) {
+        const isCurrentBar = mainContextEDate && myCloseTime > mainContextEDate;
+        if (gaps && lookahead) {
+          for (let j = 0; j < openTime.length; j++) {
+            if (openTime[j] >= myOpenTime && openTime[j] < myCloseTime) {
+              return j;
+            }
+            if (openTime[j] >= myCloseTime) {
+              break;
+            }
+          }
+        }
+        if (isCurrentBar && lookahead && !gaps) {
+          for (let j = 0; j < openTime.length; j++) {
+            if (openTime[j] >= myOpenTime && openTime[j] < myCloseTime) {
+              return j;
+            }
+            if (openTime[j] >= myCloseTime) {
+              break;
+            }
+          }
+        }
+        return i;
+      }
+      if (closeTime[i] < myOpenTime) {
+        break;
       }
     }
     return -1;
@@ -9937,46 +10450,86 @@
       const _timeframe = timeframe[0];
       const _expression = expression[0];
       const _expression_name = expression[1];
+      const _gaps = Array.isArray(gaps) ? gaps[0] : gaps;
+      const _lookahead = Array.isArray(lookahead) ? lookahead[0] : lookahead;
       const ctxTimeframeIdx = TIMEFRAMES.indexOf(context.timeframe);
       const reqTimeframeIdx = TIMEFRAMES.indexOf(_timeframe);
       if (ctxTimeframeIdx == -1 || reqTimeframeIdx == -1) {
         throw new Error("Invalid timeframe");
       }
-      if (ctxTimeframeIdx > reqTimeframeIdx) {
-        throw new Error("Only higher timeframes are supported for now");
-      }
       if (ctxTimeframeIdx === reqTimeframeIdx) {
         return _expression;
       }
-      const myOpenTime = context.data.openTime[0];
-      const myCloseTime = context.data.closeTime[0];
+      const isLTF = ctxTimeframeIdx > reqTimeframeIdx;
+      const myOpenTime = Series.from(context.data.openTime).get(0);
+      const myCloseTime = Series.from(context.data.closeTime).get(0);
+      const gapCacheKey = `${_expression_name}_prevIdx`;
       if (context.cache[_expression_name]) {
         const secContext2 = context.cache[_expression_name];
-        const secContextIdx2 = findSecContextIdx(myOpenTime, myCloseTime, secContext2.data.openTime, secContext2.data.closeTime, lookahead);
-        return secContextIdx2 == -1 ? NaN : secContext2.params[_expression_name][secContextIdx2];
+        const secContextIdx2 = isLTF ? findLTFContextIdx(
+          myOpenTime,
+          myCloseTime,
+          secContext2.data.openTime.data,
+          secContext2.data.closeTime.data,
+          _lookahead,
+          context.eDate,
+          _gaps
+        ) : findSecContextIdx(myOpenTime, myCloseTime, secContext2.data.openTime.data, secContext2.data.closeTime.data, _lookahead);
+        if (secContextIdx2 == -1) {
+          return NaN;
+        }
+        const value2 = secContext2.params[_expression_name][secContextIdx2];
+        if (!isLTF && _gaps) {
+          const prevIdx = context.cache[gapCacheKey];
+          if (prevIdx !== void 0 && prevIdx === secContextIdx2) {
+            return NaN;
+          }
+          context.cache[gapCacheKey] = secContextIdx2;
+          return Array.isArray(value2) ? [value2] : value2;
+        }
+        return Array.isArray(value2) ? [value2] : value2;
       }
-      const pineTS = new PineTS(context.source, _symbol, _timeframe, context.limit || 1e3, context.sDate, context.eDate);
+      const buffer = 1e3 * 60 * 60 * 24 * 30;
+      const adjustedSDate = context.sDate ? context.sDate - buffer : void 0;
+      const limit = context.sDate && context.eDate ? void 0 : context.limit || 1e3;
+      const pineTS = new PineTS(context.source, _symbol, _timeframe, limit, adjustedSDate, void 0);
       const secContext = await pineTS.run(context.pineTSCode);
       context.cache[_expression_name] = secContext;
-      const secContextIdx = findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime, secContext.data.closeTime, lookahead);
-      return secContextIdx == -1 ? NaN : secContext.params[_expression_name][secContextIdx];
+      const secContextIdx = isLTF ? findLTFContextIdx(
+        myOpenTime,
+        myCloseTime,
+        secContext.data.openTime.data,
+        secContext.data.closeTime.data,
+        _lookahead,
+        context.eDate,
+        _gaps
+      ) : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead);
+      if (secContextIdx == -1) {
+        return NaN;
+      }
+      const value = secContext.params[_expression_name][secContextIdx];
+      if (!isLTF && _gaps) {
+        context.cache[gapCacheKey] = secContextIdx;
+        return NaN;
+      }
+      return Array.isArray(value) ? [value] : value;
     };
   }
 
-  var __defProp$5 = Object.defineProperty;
-  var __defNormalProp$5 = (obj, key, value) => key in obj ? __defProp$5(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField$5 = (obj, key, value) => __defNormalProp$5(obj, typeof key !== "symbol" ? key + "" : key, value);
-  const methods$2 = {
-    param: param$2,
+  var __defProp$4 = Object.defineProperty;
+  var __defNormalProp$4 = (obj, key, value) => key in obj ? __defProp$4(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField$4 = (obj, key, value) => __defNormalProp$4(obj, typeof key !== "symbol" ? key + "" : key, value);
+  const methods$1 = {
+    param: param$1,
     security
   };
   class PineRequest {
     constructor(context) {
       this.context = context;
-      __publicField$5(this, "_cache", {});
-      __publicField$5(this, "param");
-      __publicField$5(this, "security");
-      Object.entries(methods$2).forEach(([name, factory]) => {
+      __publicField$4(this, "_cache", {});
+      __publicField$4(this, "param");
+      __publicField$4(this, "security");
+      Object.entries(methods$1).forEach(([name, factory]) => {
         this[name] = factory(context);
       });
     }
@@ -10298,7 +10851,7 @@
     };
   }
 
-  function param$1(context) {
+  function param(context) {
     return (source, index, name) => {
       if (source instanceof Series) {
         if (index) {
@@ -10521,7 +11074,7 @@
     };
   }
 
-  function stdev$1(context) {
+  function stdev(context) {
     return (source, _length, _bias = true, _callId) => {
       const length = Series.from(_length).get(0);
       const bias = Series.from(_bias).get(0);
@@ -10622,7 +11175,7 @@
     };
   }
 
-  function variance$1(context) {
+  function variance(context) {
     return (source, _length, _callId) => {
       const length = Series.from(_length).get(0);
       if (!context.taState) context.taState = {};
@@ -10711,13 +11264,13 @@
     };
   }
 
-  var __defProp$4 = Object.defineProperty;
-  var __defNormalProp$4 = (obj, key, value) => key in obj ? __defProp$4(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField$4 = (obj, key, value) => __defNormalProp$4(obj, typeof key !== "symbol" ? key + "" : key, value);
+  var __defProp$3 = Object.defineProperty;
+  var __defNormalProp$3 = (obj, key, value) => key in obj ? __defProp$3(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField$3 = (obj, key, value) => __defNormalProp$3(obj, typeof key !== "symbol" ? key + "" : key, value);
   const getters = {
     tr
   };
-  const methods$1 = {
+  const methods = {
     atr,
     change,
     crossover,
@@ -10730,449 +11283,53 @@
     lowest,
     median,
     mom,
-    param: param$1,
+    param,
     pivothigh,
     pivotlow,
     rma,
     roc,
     rsi,
     sma,
-    stdev: stdev$1,
+    stdev,
     supertrend,
-    variance: variance$1,
+    variance,
     vwma,
     wma
   };
   class TechnicalAnalysis {
     constructor(context) {
       this.context = context;
-      __publicField$4(this, "tr");
-      __publicField$4(this, "atr");
-      __publicField$4(this, "change");
-      __publicField$4(this, "crossover");
-      __publicField$4(this, "crossunder");
-      __publicField$4(this, "dev");
-      __publicField$4(this, "ema");
-      __publicField$4(this, "highest");
-      __publicField$4(this, "hma");
-      __publicField$4(this, "linreg");
-      __publicField$4(this, "lowest");
-      __publicField$4(this, "median");
-      __publicField$4(this, "mom");
-      __publicField$4(this, "param");
-      __publicField$4(this, "pivothigh");
-      __publicField$4(this, "pivotlow");
-      __publicField$4(this, "rma");
-      __publicField$4(this, "roc");
-      __publicField$4(this, "rsi");
-      __publicField$4(this, "sma");
-      __publicField$4(this, "stdev");
-      __publicField$4(this, "supertrend");
-      __publicField$4(this, "variance");
-      __publicField$4(this, "vwma");
-      __publicField$4(this, "wma");
+      __publicField$3(this, "tr");
+      __publicField$3(this, "atr");
+      __publicField$3(this, "change");
+      __publicField$3(this, "crossover");
+      __publicField$3(this, "crossunder");
+      __publicField$3(this, "dev");
+      __publicField$3(this, "ema");
+      __publicField$3(this, "highest");
+      __publicField$3(this, "hma");
+      __publicField$3(this, "linreg");
+      __publicField$3(this, "lowest");
+      __publicField$3(this, "median");
+      __publicField$3(this, "mom");
+      __publicField$3(this, "param");
+      __publicField$3(this, "pivothigh");
+      __publicField$3(this, "pivotlow");
+      __publicField$3(this, "rma");
+      __publicField$3(this, "roc");
+      __publicField$3(this, "rsi");
+      __publicField$3(this, "sma");
+      __publicField$3(this, "stdev");
+      __publicField$3(this, "supertrend");
+      __publicField$3(this, "variance");
+      __publicField$3(this, "vwma");
+      __publicField$3(this, "wma");
       Object.entries(getters).forEach(([name, factory]) => {
         Object.defineProperty(this, name, {
           get: factory(context),
           enumerable: true
         });
       });
-      Object.entries(methods$1).forEach(([name, factory]) => {
-        this[name] = factory(context);
-      });
-    }
-  }
-
-  class PineArrayObject {
-    constructor(array) {
-      this.array = array;
-    }
-    toString() {
-      return "PineArrayObject:" + this.array.toString();
-    }
-  }
-
-  function abs(context) {
-    return (id) => {
-      return new PineArrayObject(id.array.map((val) => Math.abs(val)));
-    };
-  }
-
-  function avg(context) {
-    return (id) => {
-      return context.array.sum(id) / id.array.length;
-    };
-  }
-
-  function clear(context) {
-    return (id) => {
-      id.array.length = 0;
-    };
-  }
-
-  function concat(context) {
-    return (id, other) => {
-      id.array.push(...other.array);
-      return id;
-    };
-  }
-
-  function copy(context) {
-    return (id) => {
-      return new PineArrayObject([...id.array]);
-    };
-  }
-
-  function covariance(context) {
-    return (arr1, arr2, biased = true) => {
-      if (arr1.array.length !== arr2.array.length || arr1.array.length < 2) return NaN;
-      const divisor = biased ? arr1.array.length : arr1.array.length - 1;
-      const mean1 = context.array.avg(arr1);
-      const mean2 = context.array.avg(arr2);
-      let sum = 0;
-      for (let i = 0; i < arr1.array.length; i++) {
-        sum += (arr1.array[i] - mean1) * (arr2.array[i] - mean2);
-      }
-      return sum / divisor;
-    };
-  }
-
-  function every(context) {
-    return (id, callback) => {
-      return id.array.every(callback);
-    };
-  }
-
-  function fill(context) {
-    return (id, value, start = 0, end) => {
-      const length = id.array.length;
-      const adjustedEnd = end !== void 0 ? Math.min(end, length) : length;
-      for (let i = start; i < adjustedEnd; i++) {
-        id.array[i] = value;
-      }
-    };
-  }
-
-  function first(context) {
-    return (id) => {
-      return id.array.length > 0 ? id.array[0] : context.NA;
-    };
-  }
-
-  function from(context) {
-    return (source) => {
-      return new PineArrayObject([...source]);
-    };
-  }
-
-  function get(context) {
-    return (id, index) => {
-      return id.array[index];
-    };
-  }
-
-  function includes(context) {
-    return (id, value) => {
-      return id.array.includes(value);
-    };
-  }
-
-  function indexof(context) {
-    return (id, value) => {
-      return id.array.indexOf(value);
-    };
-  }
-
-  function insert(context) {
-    return (id, index, value) => {
-      id.array.splice(index, 0, value);
-    };
-  }
-
-  function join(context) {
-    return (id, separator = ",") => {
-      return id.array.join(separator);
-    };
-  }
-
-  function last(context) {
-    return (id) => {
-      return id.array.length > 0 ? id.array[id.array.length - 1] : context.NA;
-    };
-  }
-
-  function lastindexof(context) {
-    return (id, value) => {
-      return id.array.lastIndexOf(value);
-    };
-  }
-
-  function max(context) {
-    return (id, nth = 0) => {
-      const sorted = [...id.array].sort((a, b) => b - a);
-      return sorted[nth] ?? context.NA;
-    };
-  }
-
-  function min(context) {
-    return (id, nth = 0) => {
-      const sorted = [...id.array].sort((a, b) => a - b);
-      return sorted[nth] ?? context.NA;
-    };
-  }
-
-  function new_fn(context) {
-    return (size, initial_value) => {
-      return new PineArrayObject(Array(size).fill(initial_value));
-    };
-  }
-
-  function new_bool(context) {
-    return (size, initial_value = false) => {
-      return new PineArrayObject(Array(size).fill(initial_value));
-    };
-  }
-
-  function new_float(context) {
-    return (size, initial_value = NaN) => {
-      return new PineArrayObject(Array(size).fill(initial_value));
-    };
-  }
-
-  function new_int(context) {
-    return (size, initial_value = 0) => {
-      return new PineArrayObject(Array(size).fill(Math.round(initial_value)));
-    };
-  }
-
-  function new_string(context) {
-    return (size, initial_value = "") => {
-      return new PineArrayObject(Array(size).fill(initial_value));
-    };
-  }
-
-  function param(context) {
-    return (source, index = 0) => {
-      return Series.from(source).get(index);
-    };
-  }
-
-  function pop(context) {
-    return (id) => {
-      return id.array.pop();
-    };
-  }
-
-  function push(context) {
-    return (id, value) => {
-      id.array.push(value);
-    };
-  }
-
-  function range(context) {
-    return (id) => {
-      return context.array.max(id) - context.array.min(id);
-    };
-  }
-
-  function remove(context) {
-    return (id, index) => {
-      if (index >= 0 && index < id.array.length) {
-        return id.array.splice(index, 1)[0];
-      }
-      return context.NA;
-    };
-  }
-
-  function reverse(context) {
-    return (id) => {
-      id.array.reverse();
-    };
-  }
-
-  function set(context) {
-    return (id, index, value) => {
-      id.array[index] = value;
-    };
-  }
-
-  function shift(context) {
-    return (id) => {
-      return id.array.shift();
-    };
-  }
-
-  function size(context) {
-    return (id) => {
-      return id.array.length;
-    };
-  }
-
-  function slice(context) {
-    return (id, start, end) => {
-      const adjustedEnd = end !== void 0 ? end + 1 : void 0;
-      return new PineArrayObject(id.array.slice(start, adjustedEnd));
-    };
-  }
-
-  function some(context) {
-    return (id, callback) => {
-      return id.array.some(callback);
-    };
-  }
-
-  function sort(context) {
-    return (id, order = "asc") => {
-      id.array.sort((a, b) => order === "asc" ? a - b : b - a);
-    };
-  }
-
-  function sort_indices(context) {
-    return (id, comparator) => {
-      const indices = id.array.map((_, index) => index);
-      indices.sort((a, b) => {
-        const valA = id.array[a];
-        const valB = id.array[b];
-        return comparator ? comparator(valA, valB) : valA - valB;
-      });
-      return new PineArrayObject(indices);
-    };
-  }
-
-  function standardize(context) {
-    return (id) => {
-      const mean = context.array.avg(id);
-      const stdev = context.array.stdev(id);
-      if (stdev === 0) {
-        return new PineArrayObject(id.array.map(() => 0));
-      }
-      return new PineArrayObject(id.array.map((x) => (x - mean) / stdev));
-    };
-  }
-
-  function stdev(context) {
-    return (id, biased = true) => {
-      const mean = context.array.avg(id);
-      const deviations = id.array.map((x) => Math.pow(x - mean, 2));
-      const divisor = biased ? id.array.length : id.array.length - 1;
-      return Math.sqrt(context.array.sum(new PineArrayObject(deviations)) / divisor);
-    };
-  }
-
-  function sum(context) {
-    return (id) => {
-      return id.array.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
-    };
-  }
-
-  function unshift(context) {
-    return (id, value) => {
-      id.array.unshift(value);
-    };
-  }
-
-  function variance(context) {
-    return (id, biased = true) => {
-      const mean = context.array.avg(id);
-      const deviations = id.array.map((x) => Math.pow(x - mean, 2));
-      const divisor = biased ? id.array.length : id.array.length - 1;
-      return context.array.sum(new PineArrayObject(deviations)) / divisor;
-    };
-  }
-
-  var __defProp$3 = Object.defineProperty;
-  var __defNormalProp$3 = (obj, key, value) => key in obj ? __defProp$3(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField$3 = (obj, key, value) => __defNormalProp$3(obj, typeof key !== "symbol" ? key + "" : key, value);
-  const methods = {
-    abs,
-    avg,
-    clear,
-    concat,
-    copy,
-    covariance,
-    every,
-    fill,
-    first,
-    from,
-    get,
-    includes,
-    indexof,
-    insert,
-    join,
-    last,
-    lastindexof,
-    max,
-    min,
-    new: new_fn,
-    new_bool,
-    new_float,
-    new_int,
-    new_string,
-    param,
-    pop,
-    push,
-    range,
-    remove,
-    reverse,
-    set,
-    shift,
-    size,
-    slice,
-    some,
-    sort,
-    sort_indices,
-    standardize,
-    stdev,
-    sum,
-    unshift,
-    variance
-  };
-  class PineArray {
-    constructor(context) {
-      this.context = context;
-      __publicField$3(this, "_cache", {});
-      __publicField$3(this, "abs");
-      __publicField$3(this, "avg");
-      __publicField$3(this, "clear");
-      __publicField$3(this, "concat");
-      __publicField$3(this, "copy");
-      __publicField$3(this, "covariance");
-      __publicField$3(this, "every");
-      __publicField$3(this, "fill");
-      __publicField$3(this, "first");
-      __publicField$3(this, "from");
-      __publicField$3(this, "get");
-      __publicField$3(this, "includes");
-      __publicField$3(this, "indexof");
-      __publicField$3(this, "insert");
-      __publicField$3(this, "join");
-      __publicField$3(this, "last");
-      __publicField$3(this, "lastindexof");
-      __publicField$3(this, "max");
-      __publicField$3(this, "min");
-      __publicField$3(this, "new");
-      __publicField$3(this, "new_bool");
-      __publicField$3(this, "new_float");
-      __publicField$3(this, "new_int");
-      __publicField$3(this, "new_string");
-      __publicField$3(this, "param");
-      __publicField$3(this, "pop");
-      __publicField$3(this, "push");
-      __publicField$3(this, "range");
-      __publicField$3(this, "remove");
-      __publicField$3(this, "reverse");
-      __publicField$3(this, "set");
-      __publicField$3(this, "shift");
-      __publicField$3(this, "size");
-      __publicField$3(this, "slice");
-      __publicField$3(this, "some");
-      __publicField$3(this, "sort");
-      __publicField$3(this, "sort_indices");
-      __publicField$3(this, "standardize");
-      __publicField$3(this, "stdev");
-      __publicField$3(this, "sum");
-      __publicField$3(this, "unshift");
-      __publicField$3(this, "variance");
       Object.entries(methods).forEach(([name, factory]) => {
         this[name] = factory(context);
       });
@@ -11193,14 +11350,14 @@
       eDate
     }) {
       __publicField$2(this, "data", {
-        open: [],
-        high: [],
-        low: [],
-        close: [],
-        volume: [],
-        hl2: [],
-        hlc3: [],
-        ohlc4: []
+        open: new Series([]),
+        high: new Series([]),
+        low: new Series([]),
+        close: new Series([]),
+        volume: new Series([]),
+        hl2: new Series([]),
+        hlc3: new Series([]),
+        ohlc4: new Series([])
       });
       __publicField$2(this, "cache", {});
       __publicField$2(this, "taState", {});
@@ -11257,28 +11414,35 @@
      * this function is used to initialize the target variable with the source array
      * this array will represent a time series and its values will be shifted at runtime in order to mimic Pine script behavior
      * @param trg - the target variable name : used internally to maintain the series in the execution context
-     * @param src - the source data, can be an array or a single value
+     * @param src - the source data, can be Series, array, or a single value
      * @param idx - the index of the source array, used to get a sub-series of the source data
-     * @returns the target array
+     * @returns Series object
      */
     init(trg, src, idx = 0) {
+      let value;
       if (src instanceof Series) {
-        src = src.get(0);
-      }
-      if (!trg) {
-        if (Array.isArray(src)) {
-          trg = [this.precision(src[src.length - 1 + idx])];
+        value = src.get(0);
+      } else if (Array.isArray(src)) {
+        if (Array.isArray(src[0])) {
+          value = src[0];
         } else {
-          trg = [this.precision(src)];
+          value = this.precision(src[src.length - 1 + idx]);
         }
       } else {
-        if (!Array.isArray(src) || Array.isArray(src[0])) {
-          trg[trg.length - 1] = Array.isArray(src?.[0]) ? src[0] : this.precision(src);
-        } else {
-          trg[trg.length - 1] = this.precision(src[src.length - 1 + idx]);
-        }
+        value = this.precision(src);
       }
-      return trg;
+      if (!trg) {
+        return new Series([value]);
+      }
+      if (trg instanceof Series) {
+        trg.data[trg.data.length - 1] = value;
+        return trg;
+      }
+      if (Array.isArray(trg)) {
+        trg[trg.length - 1] = value;
+        return new Series(trg);
+      }
+      return new Series([value]);
     }
     /**
          * this function is used to set the floating point precision of a number
@@ -11720,17 +11884,17 @@
           }
         }
       }
-      context.data.close.pop();
-      context.data.open.pop();
-      context.data.high.pop();
-      context.data.low.pop();
-      context.data.volume.pop();
-      context.data.hl2.pop();
-      context.data.hlc3.pop();
-      context.data.ohlc4.pop();
-      context.data.openTime.pop();
+      context.data.close.data.pop();
+      context.data.open.data.pop();
+      context.data.high.data.pop();
+      context.data.low.data.pop();
+      context.data.volume.data.pop();
+      context.data.hl2.data.pop();
+      context.data.hlc3.data.pop();
+      context.data.ohlc4.data.pop();
+      context.data.openTime.data.pop();
       if (context.data.closeTime) {
-        context.data.closeTime.pop();
+        context.data.closeTime.data.pop();
       }
     }
     /**
@@ -11748,16 +11912,16 @@
         eDate: this.eDate
       });
       context.pineTSCode = pineTSCode;
-      context.data.close = [];
-      context.data.open = [];
-      context.data.high = [];
-      context.data.low = [];
-      context.data.volume = [];
-      context.data.hl2 = [];
-      context.data.hlc3 = [];
-      context.data.ohlc4 = [];
-      context.data.openTime = [];
-      context.data.closeTime = [];
+      context.data.close = new Series([]);
+      context.data.open = new Series([]);
+      context.data.high = new Series([]);
+      context.data.low = new Series([]);
+      context.data.volume = new Series([]);
+      context.data.hl2 = new Series([]);
+      context.data.hlc3 = new Series([]);
+      context.data.ohlc4 = new Series([]);
+      context.data.openTime = new Series([]);
+      context.data.closeTime = new Series([]);
       return context;
     }
     /**
@@ -11776,15 +11940,16 @@
       const contextVarNames = ["const", "var", "let", "params"];
       for (let i = startIdx; i < endIdx; i++) {
         context.idx = i;
-        context.data.close.push(this.close[i]);
-        context.data.open.push(this.open[i]);
-        context.data.high.push(this.high[i]);
-        context.data.low.push(this.low[i]);
-        context.data.volume.push(this.volume[i]);
-        context.data.hl2.push(this.hl2[i]);
-        context.data.hlc3.push(this.hlc3[i]);
-        context.data.ohlc4.push(this.ohlc4[i]);
-        context.data.openTime.push(this.openTime[i]);
+        context.data.close.data.push(this.close[i]);
+        context.data.open.data.push(this.open[i]);
+        context.data.high.data.push(this.high[i]);
+        context.data.low.data.push(this.low[i]);
+        context.data.volume.data.push(this.volume[i]);
+        context.data.hl2.data.push(this.hl2[i]);
+        context.data.hlc3.data.push(this.hlc3[i]);
+        context.data.ohlc4.data.push(this.ohlc4[i]);
+        context.data.openTime.data.push(this.openTime[i]);
+        context.data.closeTime.data.push(this.closeTime[i]);
         const result = await transpiledFn(context);
         if (typeof result === "object") {
           if (typeof context.result !== "object") {
@@ -11794,7 +11959,14 @@
             if (context.result[key] === void 0) {
               context.result[key] = [];
             }
-            const val = Array.isArray(result[key]) ? result[key][result[key].length - 1] : result[key];
+            let val;
+            if (result[key] instanceof Series) {
+              val = result[key].get(0);
+            } else if (Array.isArray(result[key])) {
+              val = result[key][result[key].length - 1];
+            } else {
+              val = result[key];
+            }
             context.result[key].push(val);
           }
         } else {
@@ -11805,10 +11977,13 @@
         }
         for (let ctxVarName of contextVarNames) {
           for (let key in context[ctxVarName]) {
-            if (Array.isArray(context[ctxVarName][key])) {
-              const arr = context[ctxVarName][key];
-              const val = arr[arr.length - 1];
-              arr.push(val);
+            const item = context[ctxVarName][key];
+            if (item instanceof Series) {
+              const val = item.get(0);
+              item.data.push(val);
+            } else if (Array.isArray(item)) {
+              const val = item[item.length - 1];
+              item.push(val);
             }
           }
         }
