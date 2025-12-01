@@ -1,5 +1,29 @@
 # Change Log
 
+## [0.4.0] - TBD - Request.security implementation and transpiler enhancements
+
+### Added
+
+-   Full implementation of `request.security()` function with lookahead and gaps support
+-   New TA methods: `obv`, `alma`, `macd`, `swma`, `vwap`
+-   Architecture documentation for transpiler, runtime, and namespaces
+-   Support for handling raw .pine.ts indicator code (without context function wrapper)
+-   Ability to show original code lines in transpiled code as comments for debugging
+-   Comprehensive unit tests for `request.security()` functionality
+
+### Changed
+
+-   Restructured TA unit tests for better organization
+-   Improved Series handling for better performance and reliability
+-   Enhanced transpiler to handle implicit pine.ts imports and normalize native imports
+-   Namespaces import harmonization across the codebase
+
+### Fixed
+
+-   Critical recursion bug in `request.security()` implementation
+-   Tuple return handling in functions
+-   Property type check issues
+
 ## [0.3.1] - 2025-11-26 - Code coverage
 
 ### Added
