@@ -2,8 +2,10 @@
 // This file is auto-generated. Do not edit manually.
 // Run: npm run generate:ta-index
 
+import { obv } from './getters/obv';
 import { tr } from './getters/tr';
 
+import { alma } from './methods/alma';
 import { atr } from './methods/atr';
 import { change } from './methods/change';
 import { crossover } from './methods/crossover';
@@ -14,6 +16,7 @@ import { highest } from './methods/highest';
 import { hma } from './methods/hma';
 import { linreg } from './methods/linreg';
 import { lowest } from './methods/lowest';
+import { macd } from './methods/macd';
 import { median } from './methods/median';
 import { mom } from './methods/mom';
 import { param } from './methods/param';
@@ -25,15 +28,19 @@ import { rsi } from './methods/rsi';
 import { sma } from './methods/sma';
 import { stdev } from './methods/stdev';
 import { supertrend } from './methods/supertrend';
+import { swma } from './methods/swma';
 import { variance } from './methods/variance';
+import { vwap } from './methods/vwap';
 import { vwma } from './methods/vwma';
 import { wma } from './methods/wma';
 
 const getters = {
+  obv,
   tr
 };
 
 const methods = {
+  alma,
   atr,
   change,
   crossover,
@@ -44,6 +51,7 @@ const methods = {
   hma,
   linreg,
   lowest,
+  macd,
   median,
   mom,
   param,
@@ -55,14 +63,18 @@ const methods = {
   sma,
   stdev,
   supertrend,
+  swma,
   variance,
+  vwap,
   vwma,
   wma
 };
 
 export class TechnicalAnalysis {
+  readonly obv: ReturnType<ReturnType<typeof getters.obv>>;
   readonly tr: ReturnType<ReturnType<typeof getters.tr>>;
 
+  alma: ReturnType<typeof methods.alma>;
   atr: ReturnType<typeof methods.atr>;
   change: ReturnType<typeof methods.change>;
   crossover: ReturnType<typeof methods.crossover>;
@@ -73,6 +85,7 @@ export class TechnicalAnalysis {
   hma: ReturnType<typeof methods.hma>;
   linreg: ReturnType<typeof methods.linreg>;
   lowest: ReturnType<typeof methods.lowest>;
+  macd: ReturnType<typeof methods.macd>;
   median: ReturnType<typeof methods.median>;
   mom: ReturnType<typeof methods.mom>;
   param: ReturnType<typeof methods.param>;
@@ -84,7 +97,9 @@ export class TechnicalAnalysis {
   sma: ReturnType<typeof methods.sma>;
   stdev: ReturnType<typeof methods.stdev>;
   supertrend: ReturnType<typeof methods.supertrend>;
+  swma: ReturnType<typeof methods.swma>;
   variance: ReturnType<typeof methods.variance>;
+  vwap: ReturnType<typeof methods.vwap>;
   vwma: ReturnType<typeof methods.vwma>;
   wma: ReturnType<typeof methods.wma>;
 
